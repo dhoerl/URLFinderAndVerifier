@@ -1,0 +1,398 @@
+#define TIMEOUT_SEC     30.0
+
+@protocol HttpClientEventHandler_iPhone
+@optional
+- (void)requestSucceeded;
+- (void)requestFailed:(NSError*)error;
+@end
+
+@class Reachability;
+@interface HttpClient_iPhone : NSObject{
+    NSURLConnection *connection;
+    NSMutableData *recievedData;
+    int statusCode; 
+    id delegate;
+    Reachability* hostReachable;
+    BOOL networkChecked;
+}
+@property (nonatomic, retain) NSMutableString *previousRequest;
+@property (readonly) NSMutableData *recievedData;	// DFH should be (readonly, retain)
+@property (readonly) int statusCode;
+@property (nonatomic, assign) id delegate;
+
++ (NSString*)stringEncodedWithBase64:(NSString*)str;
++ (NSString*) stringOfAuthorizationHeaderWithUsername:(NSString*)username password:(NSString*)password;
+- (NSMutableURLRequest*)makeRequest:(NSString*)url;
+- (NSMutableURLRequest*)makeRequest:(NSString*)url username:(NSString*)username password:(NSString*)password;
+- (void)prepareWithRequest:(NSMutableURLRequest*)request;
+- (void)requestGET:(NSString*)url;
+- (void)requestPOST:(NSString*)url body:(NSString*)body type:(NSString*)type;
+- (void)requestGET:(NSString*)url username:(NSString*)username password:(NSString*)password;
+- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password body:(NSString*)body type:(NSString*)type;
+- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password bodydata:(NSData*)body contenttype:(NSString*)type;
+- (void)uploadImage:(NSString*)requesturl
+           username:(NSString*)username
+           password:(NSString*)password
+          imagename:(NSString*)imagename 
+        contenttype:(NSString*)contenttype
+          imagedata:(NSData*)imagedata;
+
+- (void)cancelTransaction;
+- (void)reset;
+- (BOOL)checkNetworkStatus;
+@end
+
+#import "HttpClient_iPhone.h"
+#import "Base64.h"
+#import "Reachability.h"
+#import "SyncLiteral.h"
+
+@implementation HttpClient_iPhone
+
+@synthesize recievedData, statusCode;
+@synthesize delegate,previousRequest;
+
+- (id)init {
+    if (self = [super init]) {
+        [self reset];
+        delegate = nil;
+        networkChecked = NO;
+    }
+    return self;
+}
+
+- (void)dealloc {
+    [connection release];
+    [recievedData release];
+    [super dealloc];
+}
+
+- (void)reset {
+    [recievedData release];
+    recievedData = [[NSMutableData alloc] init];
+    [connection release];
+    connection = nil;
+    statusCode = 0; 
+    networkChecked = NO;
+}
+
++ (NSString*)stringEncodedWithBase64:(NSString*)str {
+    static const char *tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const char *s = [str UTF8String];
+    int length = [str length];
+    char *tmp = malloc(length * 4 / 3 + 4);
+
+    int i = 0;
+    int n = 0;
+    char *p = tmp;
+
+    while (i < length) {
+        n = s[i++];
+        n *= 256;
+        if (i < length) n += s[i];
+        i++;
+        n *= 256;
+        if (i < length) n += s[i];
+        i++;
+
+        p[0] = tbl[((n & 0x00fc0000) >> 18)];
+        p[1] = tbl[((n & 0x0003f000) >> 12)];
+        p[2] = tbl[((n & 0x00000fc0) >>  6)];
+        p[3] = tbl[((n & 0x0000003f) >>  0)];
+
+        if (i > length) p[3] = '=';
+        if (i > length + 1) p[2] = '=';
+        p += 4;
+    }
+    *p = '\0';
+    NSString *ret = [NSString stringWithCString:(const char*)tmp encoding: NSUTF8StringEncoding];
+    free(tmp);
+    return ret;
+}
+
+#pragma mark - HTTP Request creating methods
+
+- (NSMutableURLRequest*)makeRequest:(NSString*)url {
+    NSString *encodedUrl = (NSString*)CFURLCreateStringByAddingPercentEscapes(
+                                                                              NULL, (CFStringRef)url, NULL, NULL, kCFStringEncodingUTF8);
+    NSMutableURLRequest *request = [[[NSMutableURLRequest alloc] init] autorelease];
+    [request setURL:[NSURL URLWithString:encodedUrl]];
+    [request setCachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData];
+    [request setTimeoutInterval:TIMEOUT_SEC];
+    [request setHTTPShouldHandleCookies:FALSE];
+    [encodedUrl release];
+    return request;
+}
+
+- (NSMutableURLRequest*)makeRequest:(NSString*)url username:(NSString*)username password:(NSString*)password {
+    NSMutableURLRequest *request = [self makeRequest:url];
+    [request setValue:[HttpClient_iPhone stringOfAuthorizationHeaderWithUsername:username password:password]
+   forHTTPHeaderField:@"Authorization"];
+    return request;
+}
+
++ (NSString*) stringOfAuthorizationHeaderWithUsername:(NSString*)username password:(NSString*)password {
+    return [@"Basic " stringByAppendingString:[HttpClient_iPhone stringEncodedWithBase64:
+                                               [NSString stringWithFormat:@"%@:%@", username, password]]];
+}
+
+- (void)prepareWithRequest:(NSMutableURLRequest*)request {
+    // do nothing (for OAuthHttpClient)
+}
+
+#pragma mark -
+#pragma mark HTTP Transaction management methods
+
+/* Sending the Http Request for "GET" */
+- (void)requestGET:(NSString*)url {
+
+    //Reseting the http client
+    [self reset];
+
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSMutableURLRequest *request = [self makeRequest:url];
+    [self prepareWithRequest:request];
+
+    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
+        self.previousRequest = [NSMutableString string];
+    [self.previousRequest appendFormat:@"GET Requested API - %@\n",url];
+    [self.previousRequest appendFormat:@"\n\n\n"];
+
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
+}
+
+/* Sending the Http Request for "POST" */
+- (void)requestPOST:(NSString*)url body:(NSString*)body type:(NSString*)type {
+
+    //Reseting the http client
+    [self reset];
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSMutableURLRequest *request = [self makeRequest:url];
+    [request setHTTPMethod:@"POST"];
+    if (type != nil && ![type isEqualToString:@""])
+        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
+    if (body) {
+        [request setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
+    }
+    [self prepareWithRequest:request];
+    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
+        self.previousRequest = [NSMutableString string];
+    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
+    [self.previousRequest appendFormat:@"Post Data - %@\n",body];
+    [self.previousRequest appendFormat:@"\n\n\n"];
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+}
+
+/* Sending the Http Request for "GET" with username and password */
+- (void)requestGET:(NSString*)url username:(NSString*)username password:(NSString*)password {
+    //Reseting the http client
+    [self reset];
+
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
+    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
+        self.previousRequest = [NSMutableString string];
+    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
+    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
+    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
+    [self.previousRequest appendFormat:@"\n\n\n"];
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
+}
+
+/* Sending the Http Request for "POST" with username and password */
+- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password body:(NSString*)body type:(NSString*)type {
+    //Reseting the http client
+    [self reset];
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
+    [request setHTTPMethod:@"POST"];
+    if (type != nil && ![type isEqualToString:@""])
+        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
+    if (body) {
+        [request setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
+    }
+    [self prepareWithRequest:request];
+    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
+        self.previousRequest = [NSMutableString string];
+    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
+    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
+    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
+    [self.previousRequest appendFormat:@"Post Data - %@\n",body];
+    [self.previousRequest appendFormat:@"\n\n\n"];
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+}
+
+/* Sending the Http Request for "POST" with username and password */
+- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password bodydata:(NSData*)body contenttype:(NSString*)type {
+    //Reseting the http client
+    [self reset];
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
+    [request setHTTPMethod:@"POST"];
+    if (type != nil && ![type isEqualToString:@""])
+        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
+    if (body) {
+        [request setHTTPBody:body];
+    }
+    if (body != nil && [body length] > 0){
+        NSString* length_str = [NSString stringWithFormat:@"%d", [body length]];
+        [request setValue:length_str forHTTPHeaderField:@"Content-Length"];
+    }
+    [self prepareWithRequest:request];
+    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
+        self.previousRequest = [NSMutableString string];
+    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
+    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
+    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
+    [self.previousRequest appendFormat:@"Post Data - %@\n",[[[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]autorelease]];
+    [self.previousRequest appendFormat:@"\n\n\n"];
+
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+}
+
+/* Sending the Http Request for uploading the image from database */
+- (void)uploadImage:(NSString*)requesturl
+           username:(NSString*)username
+           password:(NSString*)password
+          imagename:(NSString*)imagename 
+        contenttype:(NSString*)contenttype
+          imagedata:(NSData*)imagedata {
+
+    //Reseting the http client
+    [self reset];
+
+    //Checking the internet connection
+    if ([self checkNetworkStatus] == NO){
+        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
+        }       
+        return;
+    }
+    //Sending the http requqest
+    NSString *boundary = @"---------------------------14737809831466499882746641449"; 
+    NSString *contentType = [NSString stringWithFormat:@"multipart/form-data; boundary=%@",boundary]; 
+    NSURL *url = [NSURL URLWithString:requesturl];
+
+    NSMutableURLRequest *request = [self makeRequest:requesturl username:username password:password];
+    [request addValue:contentType forHTTPHeaderField: @"Content-Type"];
+
+    NSMutableData *postbody = [NSMutableData data]; 
+    [postbody appendData:[[NSString stringWithFormat:@"--%@\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]]; 
+    [postbody appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"uploadfile\"; filename=\"%@\"\r\n", imagename] dataUsingEncoding:NSUTF8StringEncoding]]; 
+    [postbody appendData:[@"Content-Type: application/octet-stream\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]]; 
+    NSData* encoded_data = [Base64 encode:imagedata];
+    [postbody appendData:[NSData dataWithData:encoded_data]];
+    [postbody appendData:[[NSString stringWithFormat:@"\r\n--%@\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]]; 
+
+    [request setURL:url];
+    [request setHTTPMethod:@"POST"];
+    [encoded_data release];
+    [request setHTTPBody:postbody]; 
+    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
+}
+
+/* Canceling the HTTP Transaction */
+- (void)cancelTransaction {
+    [connection cancel];
+    [self reset];
+}
+
+#pragma mark -
+#pragma mark NSURLConnectionDelegate methods
+
+- (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse {
+    return nil;
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
+    statusCode = [(NSHTTPURLResponse*)response statusCode];
+}
+
+- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
+    [recievedData appendData:data];
+#ifdef _DEBUG
+    NSLog(@"Receieved the http body data : \n%@\n", [[[NSString alloc] initWithData:data 
+                                        encoding:NSASCIIStringEncoding] autorelease]);
+#endif
+}
+
+- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
+#ifdef DEBUG
+    NSLog(@"Receieved the http body data : \n%@\n", [[[NSString alloc] initWithData:recievedData
+                                                                           encoding:NSASCIIStringEncoding] autorelease]);
+#endif
+    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestSucceeded)]){
+        [self.delegate performSelector:@selector(requestSucceeded) withObject:nil];
+    }
+    [self reset];
+}
+
+- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError*) error {
+#ifdef _DEBUG   
+    NSLog(@"didFailWithError \n %@",[error description]);
+#endif
+    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
+        [self.delegate performSelector:@selector(requestFailed:) withObject:error];
+    }   
+    [self reset];
+}
+
+//check network status chages
+- (BOOL)checkNetworkStatus {
+    BOOL result = NO;
+    Reachability* reachability = [Reachability reachabilityWithHostName:SERVER_ADDRESS];
+    NetworkStatus remoteHostStatus = [reachability currentReachabilityStatus];  
+
+    if(remoteHostStatus == NotReachable) { 
+#ifdef _DEBUG       
+        NSLog(@"\nNetwork Status : not reachable\n");
+#endif
+        result = NO;
+    }else if (remoteHostStatus == ReachableViaWWAN) { 
+#ifdef _DEBUG       
+        NSLog(@"\nNetwork Status : reachable via wwan\n");
+#endif
+        result = YES;
+    }else if (remoteHostStatus == ReachableViaWiFi) { 
+#ifdef _DEBUG
+        NSLog(@"\nNetwork Status : reachable via wifi\n");
+#endif
+        result = YES;       
+    }
+    return result;
+}

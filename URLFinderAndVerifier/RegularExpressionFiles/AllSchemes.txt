@@ -1,0 +1,2 @@
+# From http://jmrware.com/articles/2009/uri_regexp/URI_regex.html Copyright @ Jeff Roberson
+[A-Za-z][A-Za-z0-9+\-.]*

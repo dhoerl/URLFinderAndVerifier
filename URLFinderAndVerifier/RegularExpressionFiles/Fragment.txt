@@ -1,0 +1,3 @@
+# From http://jmrware.com/articles/2009/uri_regexp/URI_regex.html Copyright @ Jeff Roberson
+# RFC-3986 URI component:  fragment
+(?:[A-Za-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9A-Fa-f]{2})*
