@@ -1,398 +1,1271 @@
-#define TIMEOUT_SEC     30.0
-
-@protocol HttpClientEventHandler_iPhone
-@optional
-- (void)requestSucceeded;
-- (void)requestFailed:(NSError*)error;
-@end
-
-@class Reachability;
-@interface HttpClient_iPhone : NSObject{
-    NSURLConnection *connection;
-    NSMutableData *recievedData;
-    int statusCode; 
-    id delegate;
-    Reachability* hostReachable;
-    BOOL networkChecked;
-}
-@property (nonatomic, retain) NSMutableString *previousRequest;
-@property (readonly) NSMutableData *recievedData;	// DFH should be (readonly, retain)
-@property (readonly) int statusCode;
-@property (nonatomic, assign) id delegate;
-
-+ (NSString*)stringEncodedWithBase64:(NSString*)str;
-+ (NSString*) stringOfAuthorizationHeaderWithUsername:(NSString*)username password:(NSString*)password;
-- (NSMutableURLRequest*)makeRequest:(NSString*)url;
-- (NSMutableURLRequest*)makeRequest:(NSString*)url username:(NSString*)username password:(NSString*)password;
-- (void)prepareWithRequest:(NSMutableURLRequest*)request;
-- (void)requestGET:(NSString*)url;
-- (void)requestPOST:(NSString*)url body:(NSString*)body type:(NSString*)type;
-- (void)requestGET:(NSString*)url username:(NSString*)username password:(NSString*)password;
-- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password body:(NSString*)body type:(NSString*)type;
-- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password bodydata:(NSData*)body contenttype:(NSString*)type;
-- (void)uploadImage:(NSString*)requesturl
-           username:(NSString*)username
-           password:(NSString*)password
-          imagename:(NSString*)imagename 
-        contenttype:(NSString*)contenttype
-          imagedata:(NSData*)imagedata;
-
-- (void)cancelTransaction;
-- (void)reset;
-- (BOOL)checkNetworkStatus;
-@end
-
-#import "HttpClient_iPhone.h"
-#import "Base64.h"
-#import "Reachability.h"
-#import "SyncLiteral.h"
-
-@implementation HttpClient_iPhone
-
-@synthesize recievedData, statusCode;
-@synthesize delegate,previousRequest;
-
-- (id)init {
-    if (self = [super init]) {
-        [self reset];
-        delegate = nil;
-        networkChecked = NO;
-    }
-    return self;
-}
-
-- (void)dealloc {
-    [connection release];
-    [recievedData release];
-    [super dealloc];
-}
-
-- (void)reset {
-    [recievedData release];
-    recievedData = [[NSMutableData alloc] init];
-    [connection release];
-    connection = nil;
-    statusCode = 0; 
-    networkChecked = NO;
-}
-
-+ (NSString*)stringEncodedWithBase64:(NSString*)str {
-    static const char *tbl = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    const char *s = [str UTF8String];
-    int length = [str length];
-    char *tmp = malloc(length * 4 / 3 + 4);
-
-    int i = 0;
-    int n = 0;
-    char *p = tmp;
-
-    while (i < length) {
-        n = s[i++];
-        n *= 256;
-        if (i < length) n += s[i];
-        i++;
-        n *= 256;
-        if (i < length) n += s[i];
-        i++;
-
-        p[0] = tbl[((n & 0x00fc0000) >> 18)];
-        p[1] = tbl[((n & 0x0003f000) >> 12)];
-        p[2] = tbl[((n & 0x00000fc0) >>  6)];
-        p[3] = tbl[((n & 0x0000003f) >>  0)];
-
-        if (i > length) p[3] = '=';
-        if (i > length + 1) p[2] = '=';
-        p += 4;
-    }
-    *p = '\0';
-    NSString *ret = [NSString stringWithCString:(const char*)tmp encoding: NSUTF8StringEncoding];
-    free(tmp);
-    return ret;
-}
-
-#pragma mark - HTTP Request creating methods
-
-- (NSMutableURLRequest*)makeRequest:(NSString*)url {
-    NSString *encodedUrl = (NSString*)CFURLCreateStringByAddingPercentEscapes(
-                                                                              NULL, (CFStringRef)url, NULL, NULL, kCFStringEncodingUTF8);
-    NSMutableURLRequest *request = [[[NSMutableURLRequest alloc] init] autorelease];
-    [request setURL:[NSURL URLWithString:encodedUrl]];
-    [request setCachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData];
-    [request setTimeoutInterval:TIMEOUT_SEC];
-    [request setHTTPShouldHandleCookies:FALSE];
-    [encodedUrl release];
-    return request;
-}
-
-- (NSMutableURLRequest*)makeRequest:(NSString*)url username:(NSString*)username password:(NSString*)password {
-    NSMutableURLRequest *request = [self makeRequest:url];
-    [request setValue:[HttpClient_iPhone stringOfAuthorizationHeaderWithUsername:username password:password]
-   forHTTPHeaderField:@"Authorization"];
-    return request;
-}
-
-+ (NSString*) stringOfAuthorizationHeaderWithUsername:(NSString*)username password:(NSString*)password {
-    return [@"Basic " stringByAppendingString:[HttpClient_iPhone stringEncodedWithBase64:
-                                               [NSString stringWithFormat:@"%@:%@", username, password]]];
-}
-
-- (void)prepareWithRequest:(NSMutableURLRequest*)request {
-    // do nothing (for OAuthHttpClient)
-}
-
-#pragma mark -
-#pragma mark HTTP Transaction management methods
-
-/* Sending the Http Request for "GET" */
-- (void)requestGET:(NSString*)url {
-
-    //Reseting the http client
-    [self reset];
-
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSMutableURLRequest *request = [self makeRequest:url];
-    [self prepareWithRequest:request];
-
-    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
-        self.previousRequest = [NSMutableString string];
-    [self.previousRequest appendFormat:@"GET Requested API - %@\n",url];
-    [self.previousRequest appendFormat:@"\n\n\n"];
-
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
-}
-
-/* Sending the Http Request for "POST" */
-- (void)requestPOST:(NSString*)url body:(NSString*)body type:(NSString*)type {
-
-    //Reseting the http client
-    [self reset];
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSMutableURLRequest *request = [self makeRequest:url];
-    [request setHTTPMethod:@"POST"];
-    if (type != nil && ![type isEqualToString:@""])
-        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
-    if (body) {
-        [request setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
-    }
-    [self prepareWithRequest:request];
-    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
-        self.previousRequest = [NSMutableString string];
-    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
-    [self.previousRequest appendFormat:@"Post Data - %@\n",body];
-    [self.previousRequest appendFormat:@"\n\n\n"];
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
-}
-
-/* Sending the Http Request for "GET" with username and password */
-- (void)requestGET:(NSString*)url username:(NSString*)username password:(NSString*)password {
-    //Reseting the http client
-    [self reset];
-
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
-    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
-        self.previousRequest = [NSMutableString string];
-    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
-    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
-    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
-    [self.previousRequest appendFormat:@"\n\n\n"];
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self startImmediately:YES];
-}
-
-/* Sending the Http Request for "POST" with username and password */
-- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password body:(NSString*)body type:(NSString*)type {
-    //Reseting the http client
-    [self reset];
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
-    [request setHTTPMethod:@"POST"];
-    if (type != nil && ![type isEqualToString:@""])
-        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
-    if (body) {
-        [request setHTTPBody:[body dataUsingEncoding:NSUTF8StringEncoding]];
-    }
-    [self prepareWithRequest:request];
-    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
-        self.previousRequest = [NSMutableString string];
-    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
-    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
-    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
-    [self.previousRequest appendFormat:@"Post Data - %@\n",body];
-    [self.previousRequest appendFormat:@"\n\n\n"];
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
-}
-
-/* Sending the Http Request for "POST" with username and password */
-- (void)requestPOST:(NSString*)url username:(NSString*)username password:(NSString*)password bodydata:(NSData*)body contenttype:(NSString*)type {
-    //Reseting the http client
-    [self reset];
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSMutableURLRequest *request = [self makeRequest:url username:username password:password];
-    [request setHTTPMethod:@"POST"];
-    if (type != nil && ![type isEqualToString:@""])
-        [request setValue:type forHTTPHeaderField:@"Content-Type"]; 
-    if (body) {
-        [request setHTTPBody:body];
-    }
-    if (body != nil && [body length] > 0){
-        NSString* length_str = [NSString stringWithFormat:@"%d", [body length]];
-        [request setValue:length_str forHTTPHeaderField:@"Content-Length"];
-    }
-    [self prepareWithRequest:request];
-    if(![[url lastPathComponent] isEqualToString:@"pda_errorlogs"])
-        self.previousRequest = [NSMutableString string];
-    [self.previousRequest appendFormat:@"Post Requested API - %@\n",url];
-    [self.previousRequest appendFormat:@"Authorization user - %@\n",username];
-    [self.previousRequest appendFormat:@"Authorizating password - %@\n",password];
-    [self.previousRequest appendFormat:@"Post Data - %@\n",[[[NSString alloc] initWithData:body encoding:NSUTF8StringEncoding]autorelease]];
-    [self.previousRequest appendFormat:@"\n\n\n"];
-
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
-}
-
-/* Sending the Http Request for uploading the image from database */
-- (void)uploadImage:(NSString*)requesturl
-           username:(NSString*)username
-           password:(NSString*)password
-          imagename:(NSString*)imagename 
-        contenttype:(NSString*)contenttype
-          imagedata:(NSData*)imagedata {
-
-    //Reseting the http client
-    [self reset];
-
-    //Checking the internet connection
-    if ([self checkNetworkStatus] == NO){
-        if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-            [self.delegate performSelector:@selector(requestFailed:) withObject:nil];
-        }       
-        return;
-    }
-    //Sending the http requqest
-    NSString *boundary = @"---------------------------14737809831466499882746641449"; 
-    NSString *contentType = [NSString stringWithFormat:@"multipart/form-data; boundary=%@",boundary]; 
-    NSURL *url = [NSURL URLWithString:requesturl];
-
-    NSMutableURLRequest *request = [self makeRequest:requesturl username:username password:password];
-    [request addValue:contentType forHTTPHeaderField: @"Content-Type"];
-
-    NSMutableData *postbody = [NSMutableData data]; 
-    [postbody appendData:[[NSString stringWithFormat:@"--%@\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]]; 
-    [postbody appendData:[[NSString stringWithFormat:@"Content-Disposition: form-data; name=\"uploadfile\"; filename=\"%@\"\r\n", imagename] dataUsingEncoding:NSUTF8StringEncoding]]; 
-    [postbody appendData:[@"Content-Type: application/octet-stream\r\n\r\n" dataUsingEncoding:NSUTF8StringEncoding]]; 
-    NSData* encoded_data = [Base64 encode:imagedata];
-    [postbody appendData:[NSData dataWithData:encoded_data]];
-    [postbody appendData:[[NSString stringWithFormat:@"\r\n--%@\r\n",boundary] dataUsingEncoding:NSUTF8StringEncoding]]; 
-
-    [request setURL:url];
-    [request setHTTPMethod:@"POST"];
-    [encoded_data release];
-    [request setHTTPBody:postbody]; 
-    connection = [[NSURLConnection alloc] initWithRequest:request delegate:self];
-}
-
-/* Canceling the HTTP Transaction */
-- (void)cancelTransaction {
-    [connection cancel];
-    [self reset];
-}
-
-#pragma mark -
-#pragma mark NSURLConnectionDelegate methods
-
-- (NSCachedURLResponse *)connection:(NSURLConnection *)connection willCacheResponse:(NSCachedURLResponse *)cachedResponse {
-    return nil;
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveResponse:(NSURLResponse *)response {
-    statusCode = [(NSHTTPURLResponse*)response statusCode];
-}
-
-- (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data {
-    [recievedData appendData:data];
-#ifdef _DEBUG
-    NSLog(@"Receieved the http body data : \n%@\n", [[[NSString alloc] initWithData:data 
-                                        encoding:NSASCIIStringEncoding] autorelease]);
-#endif
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-#ifdef DEBUG
-    NSLog(@"Receieved the http body data : \n%@\n", [[[NSString alloc] initWithData:recievedData
-                                                                           encoding:NSASCIIStringEncoding] autorelease]);
-#endif
-    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestSucceeded)]){
-        [self.delegate performSelector:@selector(requestSucceeded) withObject:nil];
-    }
-    [self reset];
-}
-
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError*) error {
-#ifdef _DEBUG   
-    NSLog(@"didFailWithError \n %@",[error description]);
-#endif
-    if (self.delegate != nil && [self.delegate respondsToSelector:@selector(requestFailed:)]){
-        [self.delegate performSelector:@selector(requestFailed:) withObject:error];
-    }   
-    [self reset];
-}
-
-//check network status chages
-- (BOOL)checkNetworkStatus {
-    BOOL result = NO;
-    Reachability* reachability = [Reachability reachabilityWithHostName:SERVER_ADDRESS];
-    NetworkStatus remoteHostStatus = [reachability currentReachabilityStatus];  
-
-    if(remoteHostStatus == NotReachable) { 
-#ifdef _DEBUG       
-        NSLog(@"\nNetwork Status : not reachable\n");
-#endif
-        result = NO;
-    }else if (remoteHostStatus == ReachableViaWWAN) { 
-#ifdef _DEBUG       
-        NSLog(@"\nNetwork Status : reachable via wwan\n");
-#endif
-        result = YES;
-    }else if (remoteHostStatus == ReachableViaWiFi) { 
-#ifdef _DEBUG
-        NSLog(@"\nNetwork Status : reachable via wifi\n");
-#endif
-        result = YES;       
-    }
-    return result;
-}
+<!doctype html>
+<html>
+ <head>
+  <meta charset="utf-8">
+  <title>In search of the perfect URL validation regex</title>
+  <style>
+   html { font: .8em/1.5 Helvetica, Arial, sans-serif; }
+   code { font-family: Consolas; }
+   table { border-collapse: collapse; margin: 1em 0; width: 100%; }
+   td, th { border: 1px solid #fff; padding: .2em; text-align: center; }
+   th, caption { background: #e1e1e1; }
+   caption { padding: .2em; font-weight: bold; background: #bcbcbc; }
+   td { background: pink; color: red; }
+   .pass { background: lightgreen; color: green; }
+   .fail, .pass .pass { display: inline; }
+   span.pass, .pass .fail { display: none; }
+   .title { background: #bcbcbc; color: #000; font-weight: bold; }
+   pre { width: 98%; overflow: auto; background: #e1e1e1; padding: 1%; }
+  </style>
+ </head>
+ <body>
+  <h1>In search of the perfect URL validation regex</h1>
+  <p>To clarify, I’m looking for a decent regular expression to validate URLs with. I have no interest in parsing a list of URLs from a given string of text (even though some of the regexes on this page are capable of doing that).
+  <p>Assume that this regex will be used for a public URL shortener written in PHP, so URLs like <code>http://localhost/</code>, <code>//foo.bar/</code>, <code>://foo.bar/</code>, <code>data:text/plain;charset=utf-8,OHAI</code> and <code>tel:+1234567890</code> shouldn’t pass (even though they’re technically valid). Also, in this case I only want to allow the HTTP, HTTPS and FTP protocols.
+  <p>Also, single weird leading and/or trailing characters aren’t tested for. Just imagine you’re doing this before testing <code>$url</code> with the regex:
+  <pre><code>$url = trim($url, '!"#$%&amp;\'()*+,-./@:;&lt;=>[\\]^_`{|}~');</code></pre>
+  <p>Note that I’ve added <a href="http://php.net/manual/en/reference.pcre.pattern.modifiers.php">the <code>S</code> modifier</a> to all the regexes to speed up the tests. In real-world usage, this modifier can be omitted.
+  <p><a href="http://paste.pocoo.org/raw/onokRpPy4YQayEjzd8qN/">Here’s a plain text list of all the URLs used in the test.</a>
+  <p>Diego Perini <a href="https://gist.github.com/729294">posted his version as a gist</a>.</p>
+  <table>
+   <thead>
+    <tr>
+     <th>URL
+     <th title="/(((http|ftp|https):\/{2})+(([0-9a-z_-]+\.)+(aero|asia|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|cz|de|dj|dk|dm|do|dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|in|io|iq|ir|is|it|je|jm|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mk|ml|mn|mn|mo|mp|mr|ms|mt|mu|mv|mw|mx|my|mz|na|nc|ne|nf|ng|ni|nl|no|np|nr|nu|nz|nom|pa|pe|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ra|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zw|arpa)(:[0-9]+)?((\/([~0-9a-zA-Z\#\+\%@\.\/_-]+))?(\?[0-9a-zA-Z\+\%@\/&amp;\[\];=_-]+)?)?))\b/imuS">Spoon Library     <th title="_(^|[\s.:;?\-\]&lt;\(])(https?://[-\w;/?:@&amp;=+$\|\_.!~*\|'()\[\]%#,☺]+[\w/#](\(\))?)(?=$|[\s',\|\(\).:;?\-\[\]&gt;\)])_i">@krijnhoetmer     <th title="#\b(([\w-]+://?|www[.])[^\s()&lt;&gt;]+(?:\([\w\d]+\)|([^[:punct:]\s]|/)))#iS">@gruber     <th title="#(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()&lt;&gt;]+|\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\))+(?:\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\)|[^\s`!()\[\]{};:'&quot;.,&lt;&gt;?&laquo;&raquo;&ldquo;&rdquo;&lsquo;&rsquo;]))#iS">@gruber v2     <th title="~(?:\b[a-z\d.-]+://[^&lt;&gt;\s]+|\b(?:(?:(?:[^\s!@#$%^&amp;*()_=+[\]{}\|;:'&quot;,.&lt;&gt;/?]+)\.)+(?:ac|ad|aero|ae|af|ag|ai|al|am|an|ao|aq|arpa|ar|asia|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|biz|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|cat|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|coop|com|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|dz|ec|edu|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gov|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|info|int|in|io|iq|ir|is|it|je|jm|jobs|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mil|mk|ml|mm|mn|mobi|mo|mp|mq|mr|ms|mt|museum|mu|mv|mw|mx|my|mz|name|na|nc|net|ne|nf|ng|ni|nl|no|np|nr|nu|nz|om|org|pa|pe|pf|pg|ph|pk|pl|pm|pn|pro|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tel|tf|tg|th|tj|tk|tl|tm|tn|to|tp|travel|tr|tt|tv|tw|tz|ua|ug|uk|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|xn--0zwm56d|xn--11b5bs3a9aj6g|xn--80akhbyknj4f|xn--9t4b11yi5a|xn--deba0ad|xn--g6w251d|xn--hgbk6aj7f53bba|xn--hlcj6aya9esc7a|xn--jxalpdlp|xn--kgbechtv|xn--zckzah|ye|yt|yu|za|zm|zw)|(?:(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.){3}(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5]))(?:[;/][^#?&lt;&gt;\s]*)?(?:\?[^#&lt;&gt;\s]*)?(?:#[^&lt;&gt;\s]*)?(?!\w))~iS">@cowboy     <th title="@\b((ftp|https?)://[-\w]+(\.\w[-\w]*)+|(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+(?: com\b|edu\b|biz\b|gov\b|in(?:t|fo)\b|mil\b|net\b|org\b|[a-z][a-z]\b))(\:\d+)?(/[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]*(?:[.!,?]+[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]+)*)?@iS">Jeffrey Friedl     <th title="/^([a-z][a-z0-9\*\-\.]*):\/\/(?:(?:(?:[\w\.\-\+!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+:)*(?:[\w\.\-\+%!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+@)?(?:(?:[a-z0-9\-\.]|%[0-9a-f]{2})+|(?:\[(?:[0-9a-f]{0,4}:)*(?:[0-9a-f]{0,4})\]))(?::[0-9]+)?(?:[\/|\?](?:[\w#!:\.\?\+=&amp;@!$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})*)?$/xiS">@mattfarina     <th title="@^(https?|ftp)://[^\s/$.?#].[^\s]*$@iS">@stephenhay     <th title="#([a-z]([a-z]|\d|\+|-|\.)*):(\/\/(((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:)*@)?((\[(|(v[\da-f]{1,}\.(([a-z]|\d|-|\.|_|~)|[!\$&amp;'\(\)\*\+,;=]|:)+))\])|((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=])*)(:\d*)?)(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*|(\/((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)?)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)){0})(\?((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|[\xE000-\xF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|\/|\?)*)?#iS">@scottgonzales     <th title="#((https?://|ftp://|www\.|[^\s:=]+@www\.).*?[a-z_\/0-9\-\#=&amp;])(?=(\.|,|;|\?|\!)?(&quot;|'|&laquo;|&raquo;|\[|\s|\r|\n|$))#iS">@rodneyrehm     <th title="@(https?|ftp)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?$@iS">@imme_emosol     <th title="_^(?:(?:https?|ftp)://)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)(?:\.(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)*(?:\.(?:[a-z\x{00a1}-\x{ffff}]{2,})))(?::\d{2,5})?(?:/[^\s]*)?$_iuS">@diegoperini     <th title="filter_var($url, FILTER_VALIDATE_URL)">Using <code>filter_var()</code></th>
+    </tr>
+   </thead>
+   <tr>
+    <td class="title" colspan="14">These URLs should match (<code>1</code> → correct)</td>
+   </tr>
+   <tr>
+http://foo.com/blah_blah
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.com/blah_blah/
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.com/blah_blah_(wikipedia)
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.com/blah_blah_(wikipedia)_(again)
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://www.example.com/wpstyle/?p=364
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+https://www.example.com/foo/?bar=baz&amp;inga=42&amp;quux
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://✪df.ws/123
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://userid:password@example.com:8080
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid:password@example.com:8080/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid@example.com
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid@example.com/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid@example.com:8080
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid@example.com:8080/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid:password@example.com
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://userid:password@example.com/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://142.42.1.1/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://142.42.1.1:8080/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://➡.ws/䨹
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://⌘.ws
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://⌘.ws/
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://foo.com/blah_(wikipedia)#cite-1
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.com/blah_(wikipedia)_blah#cite-1
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.com/unicode_(✪)_in_parens
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://foo.com/(something)?after=parens
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://☺.damowmow.com/
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://code.google.com/events/#&amp;product=browser
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://j.mp
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+ftp://foo.bar/baz
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://foo.bar/?q=Test%20URL-encoded%20stuff
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://مثال.إختبار
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://例子.测试
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://उदाहरण.परीक्षा
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+   </tr>
+   <tr>
+http://-.~_!$&amp;'()*+,;=:%40:80%2f::::::@example.com
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://1337.net
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://a.b-c.de
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+http://223.255.255.254
+    <td><code>0</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+    <td class="pass"><code>1</code>
+   </tr>
+   <tr>
+    <td class="title" colspan="14">These URLs should fail (<code>0</code> → correct)</td>
+   </tr>
+   <tr>
+http://
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://.
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://..
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://../
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://?
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://??
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://??/
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://#
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://##
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://##/
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://foo.bar?q=Spaces should be encoded
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+//
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+//a
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+///a
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+///
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http:///a
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+foo.com
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+rdar://1234
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+h://test
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http:// shouldfail.com
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+:// should fail
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://foo.bar/foo(bar)baz quux
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+ftps://foo.bar/
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://-error-.invalid/
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://a.b--c.de/
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://-a.b.co
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://a.b-.co
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://0.0.0.0
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://10.1.1.0
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://10.1.1.255
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://224.1.1.1
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://1.1.1.1.1
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://123.123.123
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://3628126748
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://.www.foo.bar/
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://www.foo.bar./
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://.www.foo.bar./
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+    <td class="pass"><code>0</code>
+   </tr>
+   <tr>
+http://10.1.1.1
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+   <tr>
+http://10.1.1.254
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td><code>1</code>
+    <td class="pass"><code>0</code>
+    <td><code>1</code>
+   </tr>
+  </table>
+  <h2>Spoon Library (979 chars)</h2>
+  <pre><code>/(((http|ftp|https):\/{2})+(([0-9a-z_-]+\.)+(aero|asia|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|cz|de|dj|dk|dm|do|dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|in|io|iq|ir|is|it|je|jm|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mk|ml|mn|mn|mo|mp|mr|ms|mt|mu|mv|mw|mx|my|mz|na|nc|ne|nf|ng|ni|nl|no|np|nr|nu|nz|nom|pa|pe|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ra|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zw|arpa)(:[0-9]+)?((\/([~0-9a-zA-Z\#\+\%@\.\/_-]+))?(\?[0-9a-zA-Z\+\%@\/&amp;\[\];=_-]+)?)?))\b/imuS</code></pre>
+  <h2>@krijnhoetmer (115 chars)</h2>
+  <pre><code>_(^|[\s.:;?\-\]&lt;\(])(https?://[-\w;/?:@&amp;=+$\|\_.!~*\|'()\[\]%#,☺]+[\w/#](\(\))?)(?=$|[\s',\|\(\).:;?\-\[\]&gt;\)])_i</code></pre>
+  <h2>@gruber (71 chars)</h2>
+  <pre><code>#\b(([\w-]+://?|www[.])[^\s()&lt;&gt;]+(?:\([\w\d]+\)|([^[:punct:]\s]|/)))#iS</code></pre>
+  <h2>@gruber v2 (218 chars)</h2>
+  <pre><code>#(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()&lt;&gt;]+|\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\))+(?:\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\)|[^\s`!()\[\]{};:'&quot;.,&lt;&gt;?&laquo;&raquo;&ldquo;&rdquo;&lsquo;&rsquo;]))#iS</code></pre>
+  <h2>@cowboy (1241 chars)</h2>
+  <pre><code>~(?:\b[a-z\d.-]+://[^&lt;&gt;\s]+|\b(?:(?:(?:[^\s!@#$%^&amp;*()_=+[\]{}\|;:'&quot;,.&lt;&gt;/?]+)\.)+(?:ac|ad|aero|ae|af|ag|ai|al|am|an|ao|aq|arpa|ar|asia|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|biz|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|cat|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|coop|com|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|dz|ec|edu|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gov|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|info|int|in|io|iq|ir|is|it|je|jm|jobs|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mil|mk|ml|mm|mn|mobi|mo|mp|mq|mr|ms|mt|museum|mu|mv|mw|mx|my|mz|name|na|nc|net|ne|nf|ng|ni|nl|no|np|nr|nu|nz|om|org|pa|pe|pf|pg|ph|pk|pl|pm|pn|pro|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tel|tf|tg|th|tj|tk|tl|tm|tn|to|tp|travel|tr|tt|tv|tw|tz|ua|ug|uk|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|xn--0zwm56d|xn--11b5bs3a9aj6g|xn--80akhbyknj4f|xn--9t4b11yi5a|xn--deba0ad|xn--g6w251d|xn--hgbk6aj7f53bba|xn--hlcj6aya9esc7a|xn--jxalpdlp|xn--kgbechtv|xn--zckzah|ye|yt|yu|za|zm|zw)|(?:(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.){3}(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5]))(?:[;/][^#?&lt;&gt;\s]*)?(?:\?[^#&lt;&gt;\s]*)?(?:#[^&lt;&gt;\s]*)?(?!\w))~iS</code></pre>
+  <h2>Jeffrey Friedl (241 chars)</h2>
+  <pre><code>@\b((ftp|https?)://[-\w]+(\.\w[-\w]*)+|(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+(?: com\b|edu\b|biz\b|gov\b|in(?:t|fo)\b|mil\b|net\b|org\b|[a-z][a-z]\b))(\:\d+)?(/[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]*(?:[.!,?]+[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]+)*)?@iS</code></pre>
+  <h2>@mattfarina (287 chars)</h2>
+  <pre><code>/^([a-z][a-z0-9\*\-\.]*):\/\/(?:(?:(?:[\w\.\-\+!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+:)*(?:[\w\.\-\+%!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+@)?(?:(?:[a-z0-9\-\.]|%[0-9a-f]{2})+|(?:\[(?:[0-9a-f]{0,4}:)*(?:[0-9a-f]{0,4})\]))(?::[0-9]+)?(?:[\/|\?](?:[\w#!:\.\?\+=&amp;@!$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})*)?$/xiS</code></pre>
+  <h2>@stephenhay (38 chars)</h2>
+  <pre><code>@^(https?|ftp)://[^\s/$.?#].[^\s]*$@iS</code></pre>
+  <h2>@scottgonzales (1347 chars)</h2>
+  <pre><code>#([a-z]([a-z]|\d|\+|-|\.)*):(\/\/(((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:)*@)?((\[(|(v[\da-f]{1,}\.(([a-z]|\d|-|\.|_|~)|[!\$&amp;'\(\)\*\+,;=]|:)+))\])|((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=])*)(:\d*)?)(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*|(\/((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)?)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)){0})(\?((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|[\xE000-\xF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|\/|\?)*)?#iS</code></pre>
+  <h2>@rodneyrehm (109 chars)</h2>
+  <pre><code>#((https?://|ftp://|www\.|[^\s:=]+@www\.).*?[a-z_\/0-9\-\#=&amp;])(?=(\.|,|;|\?|\!)?(&quot;|'|&laquo;|&raquo;|\[|\s|\r|\n|$))#iS</code></pre>
+  <h2>@imme_emosol (54 chars)</h2>
+  <pre><code>@(https?|ftp)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?$@iS</code></pre>
+  <h2>@diegoperini (502 chars)</h2>
+  <pre><code>_^(?:(?:https?|ftp)://)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)(?:\.(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)*(?:\.(?:[a-z\x{00a1}-\x{ffff}]{2,})))(?::\d{2,5})?(?:/[^\s]*)?$_iuS</code></pre>
+  <p>— <a href="/">Mathias</a>
+  <script>var _gaq=[['_setAccount','UA-6065217-11'],['_trackPageview']];(function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];g.src='//www.google-analytics.com/ga.js';s.parentNode.insertBefore(g,s)}(document,'script'))</script>
+ </body>
+</html>
