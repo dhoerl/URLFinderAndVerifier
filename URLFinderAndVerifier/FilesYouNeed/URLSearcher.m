@@ -48,9 +48,20 @@
 	return us;
 }
 
-- (NSArray *)findMatchesInString:(NSString *)str
+- (NSArray *)findMatchesInString:(NSString *)origStr
 {
-	return nil;
+NSLog(@"CALLED");
+	NSString *str = [origStr stringByReplacingOccurrencesOfString:@"\n" withString:@""];
+	// str = [origStr stringByReplacingOccurrencesOfString:@"\r" withString:@""]; // if needbe
+
+	NSArray *ret = [self.regEx matchesInString:str options:0 range:NSMakeRange(0, [str length])];
+	
+	NSMutableArray *mret = [NSMutableArray arrayWithCapacity:[ret count]];
+	for(NSTextCheckingResult *spec in ret) {
+		NSRange r = spec.range;
+		[mret addObject:[str substringWithRange:r]];
+	}
+	return mret;
 }
 
 - (BOOL)isValidURL:(NSString *)str

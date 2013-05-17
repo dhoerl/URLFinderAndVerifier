@@ -22,6 +22,8 @@
 	IBOutlet NSButton *query;
 	IBOutlet NSButton *fragment;
 	
+	IBOutlet NSButton *entryMode;
+	IBOutlet NSButton *detectUnicode;
 	URLSearcher *es;
 }
 
@@ -45,48 +47,25 @@
 
 - (IBAction)testAction:(id)sender
 {
-#if 0
+NSLog(@"TESTER");
+
 	NSString *str = [testString string];
 	if(![str length]) {
 		NSBeep();
-	} else
-	if([es.regex isEqualToString:@"Mailto"]) {
-		[resultsList setString:@""];
-	
-		NSArray *a = [es findMailtoItems:str];
-		NSMutableString *str = [NSMutableString stringWithCapacity:256];
-
-		for(NSDictionary *dict in a) {
-			[str appendString:dict.description];
-			[str appendString:@"\n"];
-		}
-		
-		[resultsList setString:str];
+		return;
 	} else {
 		[resultsList setString:@""];
-	
+
+		es = [URLSearcher urlSearcherWithRegexStr:[self createRegEx]];
 		NSArray *a = [es findMatchesInString:str];
 		NSMutableString *str = [NSMutableString stringWithCapacity:256];
 		
-		for(id foo in a) {
-			if([foo isMemberOfClass:[NSNull class]]) {
-				NSLog(@"YIKES! failed to process address");
-				continue;
-			}
-			NSDictionary *dict = (NSDictionary *)foo;
-			NSString *entry;
-			if(dict[@"mailbox"]) {
-				entry = [NSString stringWithFormat:@"Address: %@  Name: %@  Mailbox: %@", dict[@"address"], dict[@"name"], dict[@"mailbox"]];
-			} else {
-				entry = [NSString stringWithFormat:@"Address: %@", dict[@"address"]];
-			}
-			[str appendString:entry];
-			[str appendString:@"\n"];
+		for(NSString *foo in a) {			
+			[str appendFormat:@"URL: %@\n", foo];
 		}
 		
 		[resultsList setString:str];
 	}
-#endif
 }
 
 - (IBAction)quitAction:(id)sender
@@ -133,13 +112,11 @@
 	if([query state] == NSOnState) {
 	[regEx appendString:@":"];
 		part = [self processFile:@"Query"];
-		[regEx appendString:@"?"];
 		[regEx appendString:part];
 	}
 
 	if([fragment state] == NSOnState) {
 		part = [self processFile:@"Fragment"];
-		[regEx appendString:@"#"];
 		[regEx appendString:part];
 	}
 	return regEx;
@@ -152,7 +129,7 @@ NSLog(@"PROCESS %@", name);
 	assert(file);
 	
 	__autoreleasing NSError *error;
-	NSString *origStr = [NSString stringWithContentsOfFile:file encoding:NSASCIIStringEncoding error:&error];
+	NSString *origStr = [NSString stringWithContentsOfFile:file encoding:NSUTF8StringEncoding error:&error];
 
 	NSMutableString *str = [NSMutableString stringWithCapacity:[origStr length]];
 	NSArray *array = [origStr componentsSeparatedByString:@"\n"];
@@ -167,10 +144,9 @@ NSLog(@"PROCESS %@", name);
 			first = [first stringByReplacingOccurrencesOfString:@" " withString:@""];
 			if([first length]) {
 				//first = [first stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-//NSLog(@"FIRST: \"%@\"", first);
-				if([first length]) {
-					[str appendString:first];
-				}
+				first = [first stringByReplacingOccurrencesOfString:@"☯" withString:([detectUnicode state] == NSOnState) ? @"|[\\u0080-\\U0010ffff]" : @""];
+				first = [first stringByReplacingOccurrencesOfString:@"✪" withString:([entryMode state] == NSOnState) ? @"+" : @"*"];
+				[str appendString:first];
 			}
 		} ];
 	NSLog(@"REGEX file=%@: %@", name, str);

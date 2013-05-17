@@ -22,17 +22,20 @@
 		DE441810174585D9007A0F7F /* TheWindowController.xib in Resources */ = {isa = PBXBuildFile; fileRef = DE44180C174585D9007A0F7F /* TheWindowController.xib */; };
 		DE44181317467004007A0F7F /* README.md in Resources */ = {isa = PBXBuildFile; fileRef = DE44181217467004007A0F7F /* README.md */; };
 		DE44183017469301007A0F7F /* AllAuthority.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182A17469301007A0F7F /* AllAuthority.txt */; };
-		DE44183117469301007A0F7F /* AllAuthority.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182A17469301007A0F7F /* AllAuthority.txt */; };
 		DE44183217469301007A0F7F /* AllSchemes.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182B17469301007A0F7F /* AllSchemes.txt */; };
-		DE44183317469301007A0F7F /* AllSchemes.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182B17469301007A0F7F /* AllSchemes.txt */; };
 		DE44183417469301007A0F7F /* Fragment.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182C17469301007A0F7F /* Fragment.txt */; };
-		DE44183517469301007A0F7F /* Fragment.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182C17469301007A0F7F /* Fragment.txt */; };
 		DE44183617469301007A0F7F /* HTTPScheme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182D17469301007A0F7F /* HTTPScheme.txt */; };
-		DE44183717469301007A0F7F /* HTTPScheme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182D17469301007A0F7F /* HTTPScheme.txt */; };
 		DE44183817469301007A0F7F /* Query.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182E17469301007A0F7F /* Query.txt */; };
 		DE44183917469301007A0F7F /* Query.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182E17469301007A0F7F /* Query.txt */; };
 		DE44183A17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182F17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt */; };
-		DE44183B17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182F17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt */; };
+		DE44183F17469781007A0F7F /* GoodURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44183E17469781007A0F7F /* GoodURLs.txt */; };
+		DE44184117469797007A0F7F /* BadURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184017469797007A0F7F /* BadURLs.txt */; };
+		DE44184317469849007A0F7F /* TestRegex.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184217469849007A0F7F /* TestRegex.txt */; };
+		DE44184417469A4B007A0F7F /* URLSearcher.m in Sources */ = {isa = PBXBuildFile; fileRef = DE441809174585D9007A0F7F /* URLSearcher.m */; };
+		DE44184517469D05007A0F7F /* Fragment.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182C17469301007A0F7F /* Fragment.txt */; };
+		DE4418461746AA7A007A0F7F /* TestRegex.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184217469849007A0F7F /* TestRegex.txt */; };
+		DE4418471746AAAA007A0F7F /* GoodURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44183E17469781007A0F7F /* GoodURLs.txt */; };
+		DE4418481746AAAE007A0F7F /* BadURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184017469797007A0F7F /* BadURLs.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -78,6 +81,9 @@
 		DE44182D17469301007A0F7F /* HTTPScheme.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = HTTPScheme.txt; sourceTree = "<group>"; };
 		DE44182E17469301007A0F7F /* Query.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = Query.txt; sourceTree = "<group>"; };
 		DE44182F17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = SlashSlashAuthPathABEmpty.txt; sourceTree = "<group>"; };
+		DE44183E17469781007A0F7F /* GoodURLs.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = GoodURLs.txt; sourceTree = "<group>"; };
+		DE44184017469797007A0F7F /* BadURLs.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = BadURLs.txt; sourceTree = "<group>"; };
+		DE44184217469849007A0F7F /* TestRegex.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = TestRegex.txt; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -185,6 +191,9 @@
 				DE4417F7174584D2007A0F7F /* URLFinderAndVerifierTests-Info.plist */,
 				DE4417F8174584D2007A0F7F /* InfoPlist.strings */,
 				DE441811174661C3007A0F7F /* PrintMe */,
+				DE44183E17469781007A0F7F /* GoodURLs.txt */,
+				DE44184017469797007A0F7F /* BadURLs.txt */,
+				DE44184217469849007A0F7F /* TestRegex.txt */,
 			);
 			name = "Supporting Files";
 			sourceTree = "<group>";
@@ -293,6 +302,9 @@
 				DE44183617469301007A0F7F /* HTTPScheme.txt in Resources */,
 				DE44183817469301007A0F7F /* Query.txt in Resources */,
 				DE44183A17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt in Resources */,
+				DE4418461746AA7A007A0F7F /* TestRegex.txt in Resources */,
+				DE4418471746AAAA007A0F7F /* GoodURLs.txt in Resources */,
+				DE4418481746AAAE007A0F7F /* BadURLs.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -301,12 +313,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				DE4417FA174584D2007A0F7F /* InfoPlist.strings in Resources */,
-				DE44183117469301007A0F7F /* AllAuthority.txt in Resources */,
-				DE44183317469301007A0F7F /* AllSchemes.txt in Resources */,
-				DE44183517469301007A0F7F /* Fragment.txt in Resources */,
-				DE44183717469301007A0F7F /* HTTPScheme.txt in Resources */,
 				DE44183917469301007A0F7F /* Query.txt in Resources */,
-				DE44183B17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt in Resources */,
+				DE44183F17469781007A0F7F /* GoodURLs.txt in Resources */,
+				DE44184117469797007A0F7F /* BadURLs.txt in Resources */,
+				DE44184317469849007A0F7F /* TestRegex.txt in Resources */,
+				DE44184517469D05007A0F7F /* Fragment.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -345,6 +356,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				DE4417FD174584D2007A0F7F /* URLFinderAndVerifierTests.m in Sources */,
+				DE44184417469A4B007A0F7F /* URLSearcher.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -5,7 +5,7 @@
 (?: //                                                          # ( "//"
 
 # RFC-3986 URI component:  authority
-  (?: (?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})* @)?     # authority
+  (?: (?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}☯)* @)?     # authority
   (?:
     \[
     (?:
@@ -30,9 +30,10 @@
     \]
   | (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}
        (?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)
-  | (?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})*
+  | (?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2}☯)*
   )
   (?: : [0-9]* )?
 # RFC-3986 URI component:  path-abempty
-  (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})* )*    # path-abempty
+  (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}☯)* )✪    # path-abempty DFH: set '✪' to '*' for standard behavior, to '+' for "force user to enter at least '/'
 )
+# DFH Addition: change ☯ to "|[\u0080-\U0010ffff]" to get inline Unicode detection (making this an IRI, not a URI, but you can later hex encode it), or "" for standard behavior
