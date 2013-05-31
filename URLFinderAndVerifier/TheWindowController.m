@@ -14,6 +14,11 @@
 
 @implementation TheWindowController
 {
+	IBOutlet NSButton *scanButton;
+	IBOutlet NSButton *verifyButton;
+	IBOutlet NSButton *pasteButton;
+	IBOutlet NSButton *interactiveButton;
+
 	IBOutlet NSTextView *testString;
 	IBOutlet NSTextView *resultsList;
 
@@ -24,8 +29,15 @@
 	
 	IBOutlet NSButton *entryMode;
 	IBOutlet NSButton *detectUnicode;
+	IBOutlet NSButton *captureGroups;
+
 	URLSearcher *es;
+	
+	NSString *oldInput;
+	NSString *interInput;
 }
+
+static NSString *foo = @"(http|https?):(?://(?:((?:[A-Za-z0-9\\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}|[\\u0080-\\U0010ffff])*)@)?(\\[(?:(?:(?:(?:[0-9A-Fa-f]{1,4}:){6}|::(?:[0-9A-Fa-f]{1,4}:){5}|(?:[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){4}|(?:(?:[0-9A-Fa-f]{1,4}:){0,1}[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){3}|(?:(?:[0-9A-Fa-f]{1,4}:){0,2}[0-9A-Fa-f]{1,4})?::(?:[0-9A-Fa-f]{1,4}:){2}|(?:(?:[0-9A-Fa-f]{1,4}:){0,3}[0-9A-Fa-f]{1,4})?::[0-9A-Fa-f]{1,4}:|(?:(?:[0-9A-Fa-f]{1,4}:){0,4}[0-9A-Fa-f]{1,4})?::)(?:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?))|(?:(?:[0-9A-Fa-f]{1,4}:){0,5}[0-9A-Fa-f]{1,4})?::[0-9A-Fa-f]{1,4}|(?:(?:[0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4})?::)|[Vv][0-9A-Fa-f]+\\.[A-Za-z0-9\\-._~!$&'()*+,;=:]+)\\]|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|(?:[A-Za-z0-9\\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2}|[\\u0080-\\U0010ffff])*)(?::([0-9]*))?(/(?:[A-Za-z0-9\\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}|[\\u0080-\\U0010ffff])*)+)(?:\\?((?:[A-Za-z0-9\\-._~!$&'()*+,;=:@/?]|%[0-9A-Fa-f]{2}|[\\u0080-\\U0010ffff])+))?(?:\\#((?:[A-Za-z0-9\\-._~!$&'()*+,;=:@/?]|%[0-9A-Fa-f]{2}|[\\u0080-\\U0010ffff])+))?";
 
 - (void)windowDidLoad
 {
@@ -35,6 +47,8 @@
 
 	[scheme selectItemAtIndex:1];
 	[authority selectItemAtIndex:1];
+	
+	interInput = [[testString string] copy];
 }
 
 - (void)windowWillClose:(NSNotification *)notification
@@ -47,7 +61,7 @@
 
 - (IBAction)testAction:(id)sender
 {
-NSLog(@"TESTER");
+	//NSLog(@"TESTER");
 
 	NSString *str = [testString string];
 	if(![str length]) {
@@ -67,7 +81,6 @@ NSLog(@"TESTER");
 		[resultsList setString:str];
 	}
 }
-
 - (IBAction)quitAction:(id)sender
 {
 	dispatch_async(dispatch_get_main_queue(), ^
@@ -78,18 +91,79 @@ NSLog(@"TESTER");
 - (IBAction)testSelection:(id)sender
 {
 	NSString *str = [testString string];
+	BOOL isUTF8 = NO;
+	
+	if(detectUnicode.state == NSOnState) {
+		NSString *utStr = [es encodeUTF8:str];
+		if(![str isEqualToString:utStr]) {
+			str = utStr;
+			isUTF8 = YES;
+		}
+	}
 
 	es = [URLSearcher urlSearcherWithRegexStr:[self createRegEx]];
 	if(es) {
 		BOOL val = [es isValidURL:str];
-		[resultsList setString:val ? @"YES!" : @"No"];
+		if(captureGroups.state == NSOnState) {
+			if(val) {
+				NSArray *array = [es captureGroups:str];
+				if([array count] == 1) {
+					[resultsList setString:[NSString stringWithFormat:@"%@%@%@%@", isUTF8 ? @"UTFized: " : @"", isUTF8 ? str : @"", isUTF8 ? @"\n" : @"", [array description]] ];
+				} else {
+					[resultsList setString:@"No"];
+				}
+			} else {
+				[resultsList setString:@"No"];
+			}
+		} else {
+			if(val) {
+				[resultsList setString:[NSString stringWithFormat:@"YES%@%@%@", isUTF8 ? @": (UTFized=" : @"", isUTF8 ? str : @"", isUTF8 ? @")" : @""] ];
+			} else {
+				[resultsList setString:@"No"];
+			}
+		}
 	} else {
 		[resultsList setString:@"Regex failed!"];
 	}
 }
 - (IBAction)pasteRegex:(id)sender
 {
-	[resultsList setString:[self createRegEx]];
+	NSString *str = [self createRegEx];
+	
+	NSLog(@"IS Same %d", [foo isEqualToString:str]);
+
+	if([sender tag] == 1) {
+		str = [str stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\" options:0 range:NSMakeRange(0, [str length])];
+		str = [str stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\"" options:0 range:NSMakeRange(0, [str length])];
+		str = [NSString stringWithFormat:@"@\"%@\"", str];
+	}
+	[resultsList setString:str];
+}
+- (IBAction)interactiveMode:(NSButton *)button
+{
+	BOOL isOff = [button state] == NSOffState;
+	scanButton.enabled = isOff;
+	verifyButton.enabled = isOff;
+	pasteButton.enabled = isOff;
+
+#if 0
+	scheme.enabled = isOff;
+	authority.enabled = isOff;
+	query.enabled = isOff;
+	fragment.enabled = isOff;
+	
+	entryMode.enabled = isOff;
+	detectUnicode.enabled = isOff;
+	captureGroups.enabled = isOff;
+#endif
+
+	if(isOff) {
+		interInput = [[testString string] copy];
+		[testString setString:oldInput];
+	} else {
+		oldInput = [[testString string] copy];
+		[testString setString:interInput];
+	}
 }
 
 - (NSString *)createRegEx
@@ -99,7 +173,19 @@ NSLog(@"TESTER");
 	NSString *fileName;
 	NSString *part;
 
-	fileName = [scheme indexOfSelectedItem] == 0 ? @"AllSchemes" : @"HTTPScheme";
+	switch([scheme indexOfSelectedItem]) {
+	case 0:
+		fileName = @"AllSchemes";
+		break;
+	case 1:
+		fileName = @"HTTPScheme";
+		break;
+	case 2:
+		fileName = @"HTTPS+FTPScheme";
+		break;
+	default:
+		return nil;
+	}
 	part = [self processFile:fileName];
 	[regEx appendString:part];
 
@@ -110,7 +196,6 @@ NSLog(@"TESTER");
 	[regEx appendString:part];
 
 	if([query state] == NSOnState) {
-	[regEx appendString:@":"];
 		part = [self processFile:@"Query"];
 		[regEx appendString:part];
 	}
@@ -119,12 +204,13 @@ NSLog(@"TESTER");
 		part = [self processFile:@"Fragment"];
 		[regEx appendString:part];
 	}
+	//NSLog(@"REGEX: %@", regEx);
 	return regEx;
 }
 
 - (NSString *)processFile:(NSString *)name
 {
-NSLog(@"PROCESS %@", name);
+//NSLog(@"PROCESS %@", name);
 	NSString *file = [[NSBundle mainBundle] pathForResource:name ofType:@"txt"];
 	assert(file);
 	
@@ -146,11 +232,24 @@ NSLog(@"PROCESS %@", name);
 				//first = [first stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 				first = [first stringByReplacingOccurrencesOfString:@"☯" withString:([detectUnicode state] == NSOnState) ? @"|[\\u0080-\\U0010ffff]" : @""];
 				first = [first stringByReplacingOccurrencesOfString:@"✪" withString:([entryMode state] == NSOnState) ? @"+" : @"*"];
+				first = [first stringByReplacingOccurrencesOfString:@"⌽" withString:([captureGroups state] == NSOnState) ? @"" : @"?:"];
 				[str appendString:first];
 			}
 		} ];
-	NSLog(@"REGEX file=%@: %@", name, str);
+	// NSLog(@"REGEX file=%@: %@", name, str);
 	return str;
+}
+
+- (BOOL)textView:(NSTextView *)aTextView shouldChangeTextInRange:(NSRange)affectedCharRange replacementString:(NSString *)replacementString
+{
+	if(interactiveButton.state == NSOnState) {
+		dispatch_async(dispatch_get_main_queue(), ^
+			{
+				[self testSelection:nil];
+			} );
+	}
+
+	return YES;
 }
 
 @end

@@ -1,8 +1,8 @@
 # From http://jmrware.com/articles/2009/uri_regexp/URI_regex.html Copyright @ Jeff Roberson
 # RFC-3986 URI component:  relative-part
 (?: //                                                          # ( "//"
-  (?: (?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})* @)?     # authority
-  (?:
+  (?: (⌽(?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2}☯)* ) @)?     # authority DFH modified to grab the authority without '@'
+  (⌽
     \[
     (?:
       (?:
@@ -26,15 +26,25 @@
     \]
   | (?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}
        (?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)
-  | (?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})*
+  | 
+  (?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2}☯)*
   )
-  (?: : [0-9]* )?
-  (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})* )*    # path-abempty
+  
+  (?: : (⌽[0-9]*) )? # DFH addition to grab just the port
+  
+ (⌽   # DFH addition to get one capture group
+  (⌽ / (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}☯)* )*    # path-abempty
 | /                                                             # / path-absolute
-  (?:    (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})+
-    (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})* )*
+  (⌽:    (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}☯)+
+    (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}☯)* )*
   )?
-|        (?:[A-Za-z0-9\-._~!$&'()*+,;=@] |%[0-9A-Fa-f]{2})+     # / path-noscheme
-    (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2})* )*
-|                                                               # / path-empty
+| (⌽        (?:[A-Za-z0-9\-._~!$&'()*+,;=@] |%[0-9A-Fa-f]{2}☯)+     # / path-noscheme
+    (?:/ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@]|%[0-9A-Fa-f]{2}☯)* )*
+   ) # DFH Wrapper
+|                                                            # / path-empty
+      (⌽) # DFH addition so constant number of capture groups
+ )
 )                                                               # )
+
+# DFH Addition: change ☯ to "|[\u0080-\U0010ffff]" to get inline Unicode detection (making this an IRI, not a URI, but you can later hex encode it), or "" for standard behavior
+# DFH Addition: change ⌽ from "?:" to "" to get capture groups of the various components

@@ -26,6 +26,11 @@
 + (instancetype)urlSearcherWithRegexStr:(NSString *)str;
 
 - (NSArray *)findMatchesInString:(NSString *)str;		// Uses Regular expressions to find individual URLS, and returns an array of them
+
 - (BOOL)isValidURL:(NSString *)str;						// is string a valid URL
+- (NSArray *)captureGroups:(NSString *)str;
+
+// Utility
+- (NSString *)encodeUTF8:(NSString *)str;
 
 @end

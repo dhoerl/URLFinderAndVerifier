@@ -75,4 +75,46 @@ NSLog(@"CALLED");
 	return (exp && NSEqualRanges(r, exp.range));
 }
 
+- (NSArray *)captureGroups:(NSString *)str
+{
+	NSRange r = NSMakeRange(0, [str length]);
+
+	NSMutableArray *matches = [NSMutableArray arrayWithCapacity:10];
+	[self.regEx enumerateMatchesInString:str options:0 range:r usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop)
+		{
+			NSUInteger count = [match numberOfRanges];
+			NSMutableArray *groups = [NSMutableArray arrayWithCapacity:count];
+			for(NSUInteger i=0; i<count; ++i) {
+				NSRange r = [match rangeAtIndex:i];
+				NSString *s;
+				if(r.location == NSNotFound || r.length == 0) {
+					s = @"";
+				} else {
+					s = [str substringWithRange:r];
+				}
+				// NSLog(@"ADD[%lu r=%@]: %@", [matches count], NSStringFromRange(r), s);
+				[groups addObject:s];
+			}
+			[matches addObject:groups];
+		}];
+	return matches;
+}
+
+- (NSString *)encodeUTF8:(NSString *)str
+{
+	const char *p = [str cStringUsingEncoding:NSUTF8StringEncoding];
+	NSUInteger len = strlen(p);
+	
+	NSMutableString *s = [NSMutableString stringWithCapacity:len + 10];
+	unsigned char c;
+	while((c = *p++) ) {
+		if(c < 127) {
+			[s appendFormat:@"%c", c];
+		} else {
+			[s appendFormat:@"%%%02x", c];
+		}
+	}
+	return [s copy];
+}
+
 @end

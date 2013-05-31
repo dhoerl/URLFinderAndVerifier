@@ -1,3 +1,6 @@
 # From http://jmrware.com/articles/2009/uri_regexp/URI_regex.html Copyright @ Jeff Roberson
 # RFC-3986 URI component:  fragment
-(?:\# (?:[A-Za-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9A-Fa-f]{2})* )?
+(?:\# (⌽ (?:[A-Za-z0-9\-._~!$&'()*+,;=:@/?]|%[0-9A-Fa-f]{2}☯)✪ ) )? # DFH modified to capture just the query
+# DFH Addition: change ☯ to "|[\u0080-\U0010ffff]" to get inline Unicode detection (making this an IRI, not a URI, but you can later hex encode it), or "" for standard behavior
+# DFH Addition: change ⌽ from "?:" to "" to get capture groups of the various components
+# DFH Addition: set '✪' to '*' for standard behavior, to '+' for "force user to enter at least one character after the '?'

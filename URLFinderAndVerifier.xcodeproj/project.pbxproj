@@ -36,6 +36,12 @@
 		DE4418461746AA7A007A0F7F /* TestRegex.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184217469849007A0F7F /* TestRegex.txt */; };
 		DE4418471746AAAA007A0F7F /* GoodURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44183E17469781007A0F7F /* GoodURLs.txt */; };
 		DE4418481746AAAE007A0F7F /* BadURLs.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44184017469797007A0F7F /* BadURLs.txt */; };
+		DE70B8F91758DB8D006887B7 /* HTTPS+FTPScheme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE70B8F81758DB8D006887B7 /* HTTPS+FTPScheme.txt */; };
+		DE70B8FA1758DB8D006887B7 /* HTTPS+FTPScheme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE70B8F81758DB8D006887B7 /* HTTPS+FTPScheme.txt */; };
+		DE70B8FB1758DCD4006887B7 /* HTTPScheme.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182D17469301007A0F7F /* HTTPScheme.txt */; };
+		DE70B8FC1758DCD8006887B7 /* AllSchemes.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182B17469301007A0F7F /* AllSchemes.txt */; };
+		DE70B8FD1758DCDD006887B7 /* AllAuthority.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182A17469301007A0F7F /* AllAuthority.txt */; };
+		DE70B8FE1758DCE1006887B7 /* SlashSlashAuthPathABEmpty.txt in Resources */ = {isa = PBXBuildFile; fileRef = DE44182F17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,6 +90,7 @@
 		DE44183E17469781007A0F7F /* GoodURLs.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = GoodURLs.txt; sourceTree = "<group>"; };
 		DE44184017469797007A0F7F /* BadURLs.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = BadURLs.txt; sourceTree = "<group>"; };
 		DE44184217469849007A0F7F /* TestRegex.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = TestRegex.txt; sourceTree = "<group>"; };
+		DE70B8F81758DB8D006887B7 /* HTTPS+FTPScheme.txt */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = "HTTPS+FTPScheme.txt"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -210,12 +217,13 @@
 		DE44182917469301007A0F7F /* RegularExpressionFiles */ = {
 			isa = PBXGroup;
 			children = (
-				DE44182A17469301007A0F7F /* AllAuthority.txt */,
 				DE44182B17469301007A0F7F /* AllSchemes.txt */,
-				DE44182C17469301007A0F7F /* Fragment.txt */,
 				DE44182D17469301007A0F7F /* HTTPScheme.txt */,
-				DE44182E17469301007A0F7F /* Query.txt */,
+				DE70B8F81758DB8D006887B7 /* HTTPS+FTPScheme.txt */,
+				DE44182A17469301007A0F7F /* AllAuthority.txt */,
 				DE44182F17469301007A0F7F /* SlashSlashAuthPathABEmpty.txt */,
+				DE44182C17469301007A0F7F /* Fragment.txt */,
+				DE44182E17469301007A0F7F /* Query.txt */,
 			);
 			path = RegularExpressionFiles;
 			sourceTree = "<group>";
@@ -305,6 +313,7 @@
 				DE4418461746AA7A007A0F7F /* TestRegex.txt in Resources */,
 				DE4418471746AAAA007A0F7F /* GoodURLs.txt in Resources */,
 				DE4418481746AAAE007A0F7F /* BadURLs.txt in Resources */,
+				DE70B8F91758DB8D006887B7 /* HTTPS+FTPScheme.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -318,6 +327,11 @@
 				DE44184117469797007A0F7F /* BadURLs.txt in Resources */,
 				DE44184317469849007A0F7F /* TestRegex.txt in Resources */,
 				DE44184517469D05007A0F7F /* Fragment.txt in Resources */,
+				DE70B8FA1758DB8D006887B7 /* HTTPS+FTPScheme.txt in Resources */,
+				DE70B8FB1758DCD4006887B7 /* HTTPScheme.txt in Resources */,
+				DE70B8FC1758DCD8006887B7 /* AllSchemes.txt in Resources */,
+				DE70B8FD1758DCDD006887B7 /* AllAuthority.txt in Resources */,
+				DE70B8FE1758DCE1006887B7 /* SlashSlashAuthPathABEmpty.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
