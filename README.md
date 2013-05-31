@@ -12,6 +12,7 @@ Given this near-perfect regular expression, how can we use it? First, you can va
 
 Thus, this project has three primary components: a regular expression builder with lots of options, a class that you use to validate and/or extract URLs, and a test harness that lets you expermiment with the various regulare expression creation options. When you find the options you want, you can paste the "raw" regular expression into a text file.
 
+![ScreenShot](./AppScreenShot.png)
 
 URL detectors have the following options:
 
