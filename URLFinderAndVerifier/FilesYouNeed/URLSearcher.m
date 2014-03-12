@@ -33,6 +33,7 @@
 
 + (instancetype)urlSearcherWithRegexStr:(NSString *)str
 {
+	//NSLog(@"STR: %@", str);
 	URLSearcher *us;
 	if([str length]) {
 		__autoreleasing NSError *error;
@@ -50,7 +51,7 @@
 
 - (NSArray *)findMatchesInString:(NSString *)origStr
 {
-NSLog(@"CALLED");
+	NSLog(@"findMatchesInString");
 	NSString *str = [origStr stringByReplacingOccurrencesOfString:@"\n" withString:@""];
 	// str = [origStr stringByReplacingOccurrencesOfString:@"\r" withString:@""]; // if needbe
 
@@ -60,6 +61,7 @@ NSLog(@"CALLED");
 	for(NSTextCheckingResult *spec in ret) {
 		NSRange r = spec.range;
 		[mret addObject:[str substringWithRange:r]];
+		NSLog(@"Match %@", [str substringWithRange:r]);
 	}
 	return mret;
 }

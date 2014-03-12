@@ -3,9 +3,10 @@
 //  URLFinderAndVerifierTests
 //
 //  Created by David Hoerl on 5/16/13.
-//  Copyright (c) 2013 dhoerl. All rights reserved.
+//  Copyright (c) 2013-2014 David Hoerl All rights reserved.
 //
-// http://mathiasbynens.be/demo/url-regex
+// http://mathiasbynens.be/demo/url-regex (old)
+// https://gist.github.com/dperini/729294 (current)
 
 #import "URLFinderAndVerifierTests.h"
 #import "URLSearcher.h"
@@ -21,6 +22,8 @@
 
 - (NSString *)hexer
 {
+    return self;
+#if 0
 	NSMutableString *mstr = [NSMutableString stringWithCapacity:2*[self length]+100];
 	
 	const char *cstr = [self cStringUsingEncoding:NSUTF8StringEncoding];
@@ -34,6 +37,7 @@
 		}
 	}
 	return mstr;
+#endif
 }
 
 @end
@@ -45,8 +49,10 @@
 
 - (void)setUp
 {
-    [super setUp];
-    
+    //[super setUp];
+
+system("pwd");
+
 	NSMutableString *regExStr = [NSMutableString stringWithString:[self processFile:@"TestRegex"]];
 	[regExStr appendString:[self processFile:@"Query"]];
 	[regExStr appendString:[self processFile:@"Fragment"]];
@@ -58,12 +64,13 @@
 {
     // Tear-down code here.
     
-    [super tearDown];
+    //[super tearDown];
 }
 
 - (void)testGood
 {
-	NSString *path = [[NSBundle mainBundle] pathForResource:@"GoodURLs" ofType:@"txt"];
+	NSString *path = [[NSBundle bundleForClass:[URLFinderAndVerifierTests class]] pathForResource:@"GoodURLs" ofType:@"txt"];
+	//NSString *path = [[NSBundle mainBundle] pathForResource:@"GoodURLs" ofType:@"txt"];
 	assert(path);
 	
 	__autoreleasing NSError *error;
@@ -72,14 +79,16 @@
 	
 	[urls enumerateObjectsUsingBlock:^(NSString *url, NSUInteger idx, BOOL *stop)
 		{
-			//NSLog(@"URL: %@ success=%d", [url hexer], [es isValidURL:[url hexer]]);
+			// NSLog(@"URL: %@ success=%d", [url hexer], [es isValidURL:[url hexer]]);
 			BOOL val = [es isValidURL:[url hexer]];
-			STAssertTrue(val, @"Good URL %@ Failed!", url);
+			XCTAssertTrue(val, @"Good URL %@ Failed!", url);
+			if(val) NSLog(@"URL: %@ groups: %@", url, [es captureGroups:url]);
 		} ];
 }
 - (void)testBad
 {
-	NSString *path = [[NSBundle mainBundle] pathForResource:@"BadURLs" ofType:@"txt"];
+	NSString *path = [[NSBundle bundleForClass:[URLFinderAndVerifierTests class]] pathForResource:@"BadURLs" ofType:@"txt"];
+	//NSString *path = [[NSBundle mainBundle] pathForResource:@"BadURLs" ofType:@"txt"];
 	assert(path);
 	
 	__autoreleasing NSError *error;
@@ -94,14 +103,14 @@
 				NSString *foo = [NSString stringWithFormat:@"%@ success=%d", [url hexer], [es isValidURL:[url hexer]]];
 				printf("%s\n", [foo cStringUsingEncoding:NSUTF8StringEncoding]);
 			}
-			//STAssertFalse(val, @"Good URL %@ Failed!", url);
+			XCTAssertFalse(val, @"Bad URL %@ Succeeded!", url);
 		} ];
 }
 
 - (NSString *)processFile:(NSString *)name
 {
-	NSLog(@"PROCESS %@ xxx %@", [NSBundle mainBundle], name);
-	NSString *file = [[NSBundle mainBundle] pathForResource:name ofType:@"txt"];
+	NSLog(@"PROCESS %@ xxx %@", [NSBundle bundleForClass:[self class]], name);
+	NSString *file = [[NSBundle bundleForClass:[self class]] pathForResource:name ofType:@"txt"];
 	assert(file);
 	
 	__autoreleasing NSError *error;

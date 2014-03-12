@@ -1,0 +1,87 @@
+# RFC-1035, pulled from EmailFinderAndVerifier, with internation support using ▼
+# See https://www.iana.org/domains/root/db for a full list of current TLDs
+(?:
+ # host/domain name
+  (?:
+    [A-Za-z0-9▼]
+    (?:
+     [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z0-9▼]
+    )?
+    \.
+  )* # host
+  # TLD identifier
+  (?:
+    [A-Za-z▼]
+    (?:
+     [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z0-9▼]
+    )+
+  ) # TLD - the syntax should handle real Unicode as well as PunyCode (translated Unicode)
+) # dot-atom (RFC-1035 - 2.3.1)
+
+# DFH Addition: change ▼ to "\\u00a1-\\Uffff0" to get inline Unicode detection (making this an IRI, not a URI, but you can later hex encode it), or "" for standard behavior
+.
+
+# works pretty well
+(?:
+ # host name
+  (?:
+    [A-Za-z0-9▼]
+    (?:
+     [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z0-9▼]
+    )?
+  ) # host
+  # domain name
+  (?:
+    \.
+    [A-Za-z0-9▼]
+    (?:
+     [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z0-9▼]
+    )?
+  )* # domain
+  # TLD identifier
+  (?:
+    \.
+    [A-Za-z▼]
+    (?:
+     [A-Za-z\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z▼]
+    )?
+   ) # TLD
+) # dot-atom (RFC-1035 - 2.3.1)
+
+
+
+# this is the real answer. Problem is it allows 222.222.222
+  (?:
+   [A-Za-z0-9▼]
+   (?:
+    [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+    [A-Za-z0-9▼]
+   )?
+  ) # first label
+  (?:
+    \.
+    [A-Za-z0-9▼]
+    (?:
+     [A-Za-z0-9\-▼]{0,61} # 61 does not handle puny-code expansion, would need to add code to do so (convert then measure)
+     [A-Za-z0-9▼]
+    )?
+   )* # other labels
+
+
+
+
+
+# https://gist.github.com/dperini/729294
+# host name
+(?:(?:[a-z\u00a1-\uffff0-9]+-?)*[a-z\u00a1-\uffff0-9]+)
+
+# domain name
+(?:\.(?:[a-z\u00a1-\uffff0-9]+-?)*[a-z\u00a1-\uffff0-9]+)*
+
+# TLD identifier
+(?:\.(?:[a-z\u00a1-\uffff]{2,}))

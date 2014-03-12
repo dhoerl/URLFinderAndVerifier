@@ -1,1271 +1,307 @@
-<!doctype html>
-<html>
- <head>
-  <meta charset="utf-8">
-  <title>In search of the perfect URL validation regex</title>
-  <style>
-   html { font: .8em/1.5 Helvetica, Arial, sans-serif; }
-   code { font-family: Consolas; }
-   table { border-collapse: collapse; margin: 1em 0; width: 100%; }
-   td, th { border: 1px solid #fff; padding: .2em; text-align: center; }
-   th, caption { background: #e1e1e1; }
-   caption { padding: .2em; font-weight: bold; background: #bcbcbc; }
-   td { background: pink; color: red; }
-   .pass { background: lightgreen; color: green; }
-   .fail, .pass .pass { display: inline; }
-   span.pass, .pass .fail { display: none; }
-   .title { background: #bcbcbc; color: #000; font-weight: bold; }
-   pre { width: 98%; overflow: auto; background: #e1e1e1; padding: 1%; }
-  </style>
- </head>
- <body>
-  <h1>In search of the perfect URL validation regex</h1>
-  <p>To clarify, I’m looking for a decent regular expression to validate URLs with. I have no interest in parsing a list of URLs from a given string of text (even though some of the regexes on this page are capable of doing that).
-  <p>Assume that this regex will be used for a public URL shortener written in PHP, so URLs like <code>http://localhost/</code>, <code>//foo.bar/</code>, <code>://foo.bar/</code>, <code>data:text/plain;charset=utf-8,OHAI</code> and <code>tel:+1234567890</code> shouldn’t pass (even though they’re technically valid). Also, in this case I only want to allow the HTTP, HTTPS and FTP protocols.
-  <p>Also, single weird leading and/or trailing characters aren’t tested for. Just imagine you’re doing this before testing <code>$url</code> with the regex:
-  <pre><code>$url = trim($url, '!"#$%&amp;\'()*+,-./@:;&lt;=>[\\]^_`{|}~');</code></pre>
-  <p>Note that I’ve added <a href="http://php.net/manual/en/reference.pcre.pattern.modifiers.php">the <code>S</code> modifier</a> to all the regexes to speed up the tests. In real-world usage, this modifier can be omitted.
-  <p><a href="http://paste.pocoo.org/raw/onokRpPy4YQayEjzd8qN/">Here’s a plain text list of all the URLs used in the test.</a>
-  <p>Diego Perini <a href="https://gist.github.com/729294">posted his version as a gist</a>.</p>
-  <table>
-   <thead>
-    <tr>
-     <th>URL
-     <th title="/(((http|ftp|https):\/{2})+(([0-9a-z_-]+\.)+(aero|asia|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|cz|de|dj|dk|dm|do|dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|in|io|iq|ir|is|it|je|jm|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mk|ml|mn|mn|mo|mp|mr|ms|mt|mu|mv|mw|mx|my|mz|na|nc|ne|nf|ng|ni|nl|no|np|nr|nu|nz|nom|pa|pe|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ra|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zw|arpa)(:[0-9]+)?((\/([~0-9a-zA-Z\#\+\%@\.\/_-]+))?(\?[0-9a-zA-Z\+\%@\/&amp;\[\];=_-]+)?)?))\b/imuS">Spoon Library     <th title="_(^|[\s.:;?\-\]&lt;\(])(https?://[-\w;/?:@&amp;=+$\|\_.!~*\|'()\[\]%#,☺]+[\w/#](\(\))?)(?=$|[\s',\|\(\).:;?\-\[\]&gt;\)])_i">@krijnhoetmer     <th title="#\b(([\w-]+://?|www[.])[^\s()&lt;&gt;]+(?:\([\w\d]+\)|([^[:punct:]\s]|/)))#iS">@gruber     <th title="#(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()&lt;&gt;]+|\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\))+(?:\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\)|[^\s`!()\[\]{};:'&quot;.,&lt;&gt;?&laquo;&raquo;&ldquo;&rdquo;&lsquo;&rsquo;]))#iS">@gruber v2     <th title="~(?:\b[a-z\d.-]+://[^&lt;&gt;\s]+|\b(?:(?:(?:[^\s!@#$%^&amp;*()_=+[\]{}\|;:'&quot;,.&lt;&gt;/?]+)\.)+(?:ac|ad|aero|ae|af|ag|ai|al|am|an|ao|aq|arpa|ar|asia|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|biz|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|cat|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|coop|com|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|dz|ec|edu|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gov|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|info|int|in|io|iq|ir|is|it|je|jm|jobs|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mil|mk|ml|mm|mn|mobi|mo|mp|mq|mr|ms|mt|museum|mu|mv|mw|mx|my|mz|name|na|nc|net|ne|nf|ng|ni|nl|no|np|nr|nu|nz|om|org|pa|pe|pf|pg|ph|pk|pl|pm|pn|pro|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tel|tf|tg|th|tj|tk|tl|tm|tn|to|tp|travel|tr|tt|tv|tw|tz|ua|ug|uk|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|xn--0zwm56d|xn--11b5bs3a9aj6g|xn--80akhbyknj4f|xn--9t4b11yi5a|xn--deba0ad|xn--g6w251d|xn--hgbk6aj7f53bba|xn--hlcj6aya9esc7a|xn--jxalpdlp|xn--kgbechtv|xn--zckzah|ye|yt|yu|za|zm|zw)|(?:(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.){3}(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5]))(?:[;/][^#?&lt;&gt;\s]*)?(?:\?[^#&lt;&gt;\s]*)?(?:#[^&lt;&gt;\s]*)?(?!\w))~iS">@cowboy     <th title="@\b((ftp|https?)://[-\w]+(\.\w[-\w]*)+|(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+(?: com\b|edu\b|biz\b|gov\b|in(?:t|fo)\b|mil\b|net\b|org\b|[a-z][a-z]\b))(\:\d+)?(/[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]*(?:[.!,?]+[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]+)*)?@iS">Jeffrey Friedl     <th title="/^([a-z][a-z0-9\*\-\.]*):\/\/(?:(?:(?:[\w\.\-\+!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+:)*(?:[\w\.\-\+%!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+@)?(?:(?:[a-z0-9\-\.]|%[0-9a-f]{2})+|(?:\[(?:[0-9a-f]{0,4}:)*(?:[0-9a-f]{0,4})\]))(?::[0-9]+)?(?:[\/|\?](?:[\w#!:\.\?\+=&amp;@!$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})*)?$/xiS">@mattfarina     <th title="@^(https?|ftp)://[^\s/$.?#].[^\s]*$@iS">@stephenhay     <th title="#([a-z]([a-z]|\d|\+|-|\.)*):(\/\/(((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:)*@)?((\[(|(v[\da-f]{1,}\.(([a-z]|\d|-|\.|_|~)|[!\$&amp;'\(\)\*\+,;=]|:)+))\])|((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=])*)(:\d*)?)(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*|(\/((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)?)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)){0})(\?((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|[\xE000-\xF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|\/|\?)*)?#iS">@scottgonzales     <th title="#((https?://|ftp://|www\.|[^\s:=]+@www\.).*?[a-z_\/0-9\-\#=&amp;])(?=(\.|,|;|\?|\!)?(&quot;|'|&laquo;|&raquo;|\[|\s|\r|\n|$))#iS">@rodneyrehm     <th title="@(https?|ftp)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?$@iS">@imme_emosol     <th title="_^(?:(?:https?|ftp)://)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)(?:\.(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)*(?:\.(?:[a-z\x{00a1}-\x{ffff}]{2,})))(?::\d{2,5})?(?:/[^\s]*)?$_iuS">@diegoperini     <th title="filter_var($url, FILTER_VALIDATE_URL)">Using <code>filter_var()</code></th>
-    </tr>
-   </thead>
-   <tr>
-    <td class="title" colspan="14">These URLs should match (<code>1</code> → correct)</td>
-   </tr>
-   <tr>
-http://foo.com/blah_blah
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.com/blah_blah/
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.com/blah_blah_(wikipedia)
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.com/blah_blah_(wikipedia)_(again)
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://www.example.com/wpstyle/?p=364
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-https://www.example.com/foo/?bar=baz&amp;inga=42&amp;quux
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://✪df.ws/123
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://userid:password@example.com:8080
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid:password@example.com:8080/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid@example.com
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid@example.com/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid@example.com:8080
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid@example.com:8080/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid:password@example.com
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://userid:password@example.com/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://142.42.1.1/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://142.42.1.1:8080/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://➡.ws/䨹
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://⌘.ws
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://⌘.ws/
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://foo.com/blah_(wikipedia)#cite-1
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.com/blah_(wikipedia)_blah#cite-1
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.com/unicode_(✪)_in_parens
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://foo.com/(something)?after=parens
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://☺.damowmow.com/
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://code.google.com/events/#&amp;product=browser
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://j.mp
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-ftp://foo.bar/baz
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://foo.bar/?q=Test%20URL-encoded%20stuff
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://مثال.إختبار
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://例子.测试
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://उदाहरण.परीक्षा
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-   </tr>
-   <tr>
-http://-.~_!$&amp;'()*+,;=:%40:80%2f::::::@example.com
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://1337.net
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://a.b-c.de
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-http://223.255.255.254
-    <td><code>0</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-    <td class="pass"><code>1</code>
-   </tr>
-   <tr>
-    <td class="title" colspan="14">These URLs should fail (<code>0</code> → correct)</td>
-   </tr>
-   <tr>
-http://
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://.
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://..
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://../
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://?
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://??
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://??/
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://#
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://##
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://##/
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://foo.bar?q=Spaces should be encoded
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-//
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-//a
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-///a
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-///
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http:///a
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-foo.com
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-rdar://1234
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-h://test
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http:// shouldfail.com
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-:// should fail
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://foo.bar/foo(bar)baz quux
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-ftps://foo.bar/
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://-error-.invalid/
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://a.b--c.de/
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://-a.b.co
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://a.b-.co
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://0.0.0.0
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://10.1.1.0
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://10.1.1.255
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://224.1.1.1
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://1.1.1.1.1
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://123.123.123
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://3628126748
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://.www.foo.bar/
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://www.foo.bar./
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://.www.foo.bar./
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-    <td class="pass"><code>0</code>
-   </tr>
-   <tr>
-http://10.1.1.1
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-   <tr>
-http://10.1.1.254
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td><code>1</code>
-    <td class="pass"><code>0</code>
-    <td><code>1</code>
-   </tr>
-  </table>
-  <h2>Spoon Library (979 chars)</h2>
-  <pre><code>/(((http|ftp|https):\/{2})+(([0-9a-z_-]+\.)+(aero|asia|biz|cat|com|coop|edu|gov|info|int|jobs|mil|mobi|museum|name|net|org|pro|tel|travel|ac|ad|ae|af|ag|ai|al|am|an|ao|aq|ar|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|co|cr|cu|cv|cx|cy|cz|cz|de|dj|dk|dm|do|dz|ec|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|in|io|iq|ir|is|it|je|jm|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mk|ml|mn|mn|mo|mp|mr|ms|mt|mu|mv|mw|mx|my|mz|na|nc|ne|nf|ng|ni|nl|no|np|nr|nu|nz|nom|pa|pe|pf|pg|ph|pk|pl|pm|pn|pr|ps|pt|pw|py|qa|re|ra|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tf|tg|th|tj|tk|tl|tm|tn|to|tp|tr|tt|tv|tw|tz|ua|ug|uk|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|ye|yt|yu|za|zm|zw|arpa)(:[0-9]+)?((\/([~0-9a-zA-Z\#\+\%@\.\/_-]+))?(\?[0-9a-zA-Z\+\%@\/&amp;\[\];=_-]+)?)?))\b/imuS</code></pre>
-  <h2>@krijnhoetmer (115 chars)</h2>
-  <pre><code>_(^|[\s.:;?\-\]&lt;\(])(https?://[-\w;/?:@&amp;=+$\|\_.!~*\|'()\[\]%#,☺]+[\w/#](\(\))?)(?=$|[\s',\|\(\).:;?\-\[\]&gt;\)])_i</code></pre>
-  <h2>@gruber (71 chars)</h2>
-  <pre><code>#\b(([\w-]+://?|www[.])[^\s()&lt;&gt;]+(?:\([\w\d]+\)|([^[:punct:]\s]|/)))#iS</code></pre>
-  <h2>@gruber v2 (218 chars)</h2>
-  <pre><code>#(?i)\b((?:[a-z][\w-]+:(?:/{1,3}|[a-z0-9%])|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()&lt;&gt;]+|\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\))+(?:\(([^\s()&lt;&gt;]+|(\([^\s()&lt;&gt;]+\)))*\)|[^\s`!()\[\]{};:'&quot;.,&lt;&gt;?&laquo;&raquo;&ldquo;&rdquo;&lsquo;&rsquo;]))#iS</code></pre>
-  <h2>@cowboy (1241 chars)</h2>
-  <pre><code>~(?:\b[a-z\d.-]+://[^&lt;&gt;\s]+|\b(?:(?:(?:[^\s!@#$%^&amp;*()_=+[\]{}\|;:'&quot;,.&lt;&gt;/?]+)\.)+(?:ac|ad|aero|ae|af|ag|ai|al|am|an|ao|aq|arpa|ar|asia|as|at|au|aw|ax|az|ba|bb|bd|be|bf|bg|bh|biz|bi|bj|bm|bn|bo|br|bs|bt|bv|bw|by|bz|cat|ca|cc|cd|cf|cg|ch|ci|ck|cl|cm|cn|coop|com|co|cr|cu|cv|cx|cy|cz|de|dj|dk|dm|do|dz|ec|edu|ee|eg|er|es|et|eu|fi|fj|fk|fm|fo|fr|ga|gb|gd|ge|gf|gg|gh|gi|gl|gm|gn|gov|gp|gq|gr|gs|gt|gu|gw|gy|hk|hm|hn|hr|ht|hu|id|ie|il|im|info|int|in|io|iq|ir|is|it|je|jm|jobs|jo|jp|ke|kg|kh|ki|km|kn|kp|kr|kw|ky|kz|la|lb|lc|li|lk|lr|ls|lt|lu|lv|ly|ma|mc|md|me|mg|mh|mil|mk|ml|mm|mn|mobi|mo|mp|mq|mr|ms|mt|museum|mu|mv|mw|mx|my|mz|name|na|nc|net|ne|nf|ng|ni|nl|no|np|nr|nu|nz|om|org|pa|pe|pf|pg|ph|pk|pl|pm|pn|pro|pr|ps|pt|pw|py|qa|re|ro|rs|ru|rw|sa|sb|sc|sd|se|sg|sh|si|sj|sk|sl|sm|sn|so|sr|st|su|sv|sy|sz|tc|td|tel|tf|tg|th|tj|tk|tl|tm|tn|to|tp|travel|tr|tt|tv|tw|tz|ua|ug|uk|um|us|uy|uz|va|vc|ve|vg|vi|vn|vu|wf|ws|xn--0zwm56d|xn--11b5bs3a9aj6g|xn--80akhbyknj4f|xn--9t4b11yi5a|xn--deba0ad|xn--g6w251d|xn--hgbk6aj7f53bba|xn--hlcj6aya9esc7a|xn--jxalpdlp|xn--kgbechtv|xn--zckzah|ye|yt|yu|za|zm|zw)|(?:(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5])\.){3}(?:[0-9]|[1-9]\d|1\d{2}|2[0-4]\d|25[0-5]))(?:[;/][^#?&lt;&gt;\s]*)?(?:\?[^#&lt;&gt;\s]*)?(?:#[^&lt;&gt;\s]*)?(?!\w))~iS</code></pre>
-  <h2>Jeffrey Friedl (241 chars)</h2>
-  <pre><code>@\b((ftp|https?)://[-\w]+(\.\w[-\w]*)+|(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?\.)+(?: com\b|edu\b|biz\b|gov\b|in(?:t|fo)\b|mil\b|net\b|org\b|[a-z][a-z]\b))(\:\d+)?(/[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]*(?:[.!,?]+[^.!,?;&quot;'&lt;&gt;()\[\]{}\s\x7F-\xFF]+)*)?@iS</code></pre>
-  <h2>@mattfarina (287 chars)</h2>
-  <pre><code>/^([a-z][a-z0-9\*\-\.]*):\/\/(?:(?:(?:[\w\.\-\+!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+:)*(?:[\w\.\-\+%!$&amp;'\(\)*\+,;=]|%[0-9a-f]{2})+@)?(?:(?:[a-z0-9\-\.]|%[0-9a-f]{2})+|(?:\[(?:[0-9a-f]{0,4}:)*(?:[0-9a-f]{0,4})\]))(?::[0-9]+)?(?:[\/|\?](?:[\w#!:\.\?\+=&amp;@!$'~*,;\/\(\)\[\]\-]|%[0-9a-f]{2})*)?$/xiS</code></pre>
-  <h2>@stephenhay (38 chars)</h2>
-  <pre><code>@^(https?|ftp)://[^\s/$.?#].[^\s]*$@iS</code></pre>
-  <h2>@scottgonzales (1347 chars)</h2>
-  <pre><code>#([a-z]([a-z]|\d|\+|-|\.)*):(\/\/(((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:)*@)?((\[(|(v[\da-f]{1,}\.(([a-z]|\d|-|\.|_|~)|[!\$&amp;'\(\)\*\+,;=]|:)+))\])|((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=])*)(:\d*)?)(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*|(\/((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)?)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)*)*)|((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)){0})(\?((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|[\xE000-\xF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\x00A0-\xD7FF\xF900-\xFDCF\xFDF0-\xFFEF])|(%[\da-f]{2})|[!\$&amp;'\(\)\*\+,;=]|:|@)|\/|\?)*)?#iS</code></pre>
-  <h2>@rodneyrehm (109 chars)</h2>
-  <pre><code>#((https?://|ftp://|www\.|[^\s:=]+@www\.).*?[a-z_\/0-9\-\#=&amp;])(?=(\.|,|;|\?|\!)?(&quot;|'|&laquo;|&raquo;|\[|\s|\r|\n|$))#iS</code></pre>
-  <h2>@imme_emosol (54 chars)</h2>
-  <pre><code>@(https?|ftp)://(-\.)?([^\s/?\.#-]+\.?)+(/[^\s]*)?$@iS</code></pre>
-  <h2>@diegoperini (502 chars)</h2>
-  <pre><code>_^(?:(?:https?|ftp)://)(?:\S+(?::\S*)?@)?(?:(?!10(?:\.\d{1,3}){3})(?!127(?:\.\d{1,3}){3})(?!169\.254(?:\.\d{1,3}){2})(?!192\.168(?:\.\d{1,3}){2})(?!172\.(?:1[6-9]|2\d|3[0-1])(?:\.\d{1,3}){2})(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}(?:\.(?:[1-9]\d?|1\d\d|2[0-4]\d|25[0-4]))|(?:(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)(?:\.(?:[a-z\x{00a1}-\x{ffff}0-9]+-?)*[a-z\x{00a1}-\x{ffff}0-9]+)*(?:\.(?:[a-z\x{00a1}-\x{ffff}]{2,})))(?::\d{2,5})?(?:/[^\s]*)?$_iuS</code></pre>
-  <p>— <a href="/">Mathias</a>
-  <script>var _gaq=[['_setAccount','UA-6065217-11'],['_trackPageview']];(function(d,t){var g=d.createElement(t),s=d.getElementsByTagName(t)[0];g.src='//www.google-analytics.com/ga.js';s.parentNode.insertBefore(g,s)}(document,'script'))</script>
- </body>
-</html>
+PhaseScriptExecution "Run Script" /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Script-DE4417ED174584D2007A0F7F.sh
+    cd /Volumes/Data/git/URLFinderAndVerifier
+    setenv ACTION build
+    setenv ALTERNATE_GROUP staff
+    setenv ALTERNATE_MODE u+w,go-w,a+rX
+    setenv ALTERNATE_OWNER dhoerl
+    setenv ALWAYS_SEARCH_USER_PATHS NO
+    setenv APPLE_INTERNAL_DEVELOPER_DIR /AppleInternal/Developer
+    setenv APPLE_INTERNAL_DIR /AppleInternal
+    setenv APPLE_INTERNAL_DOCUMENTATION_DIR /AppleInternal/Documentation
+    setenv APPLE_INTERNAL_LIBRARY_DIR /AppleInternal/Library
+    setenv APPLE_INTERNAL_TOOLS /AppleInternal/Developer/Tools
+    setenv APPLY_RULES_IN_COPY_FILES NO
+    setenv ARCHS x86_64
+    setenv ARCHS_STANDARD_32_64_BIT "x86_64 i386"
+    setenv ARCHS_STANDARD_32_BIT i386
+    setenv ARCHS_STANDARD_64_BIT x86_64
+    setenv AVAILABLE_PLATFORMS "iphonesimulator macosx iphoneos"
+    setenv BUILD_COMPONENTS "headers build"
+    setenv BUILD_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products
+    setenv BUILD_ROOT /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products
+    setenv BUILD_STYLE 
+    setenv BUILD_VARIANTS normal
+    setenv BUILT_PRODUCTS_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release
+    setenv BUNDLE_LOADER /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release/URLFinderAndVerifier.app/Contents/MacOS/URLFinderAndVerifier
+    setenv CACHE_ROOT /var/folders/h9/tdc8n1vd65qbn35sqcgkmzqw0000gp/C/com.apple.Xcode.502
+    setenv CCHROOT /var/folders/h9/tdc8n1vd65qbn35sqcgkmzqw0000gp/C/com.apple.Xcode.502
+    setenv CHMOD /bin/chmod
+    setenv CHOWN /usr/sbin/chown
+    setenv CLANG_CXX_LANGUAGE_STANDARD gnu++0x
+    setenv CLANG_CXX_LIBRARY libc++
+    setenv CLANG_ENABLE_OBJC_ARC YES
+    setenv CLANG_WARN_CONSTANT_CONVERSION YES
+    setenv CLANG_WARN_EMPTY_BODY YES
+    setenv CLANG_WARN_ENUM_CONVERSION YES
+    setenv CLANG_WARN_INT_CONVERSION YES
+    setenv CLANG_WARN__DUPLICATE_METHOD_MATCH YES
+    setenv CLASS_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/JavaClasses
+    setenv CLEAN_PRECOMPS YES
+    setenv CLONE_HEADERS NO
+    setenv CODESIGNING_FOLDER_PATH /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release/URLFinderAndVerifierTests.octest
+    setenv CODE_SIGNING_ALLOWED YES
+    setenv COMBINE_HIDPI_IMAGES YES
+    setenv COMMAND_MODE legacy
+    setenv COMPOSITE_SDK_DIRS /var/folders/h9/tdc8n1vd65qbn35sqcgkmzqw0000gp/C/com.apple.Xcode.502/CompositeSDKs
+    setenv CONFIGURATION Release
+    setenv CONFIGURATION_BUILD_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release
+    setenv CONFIGURATION_TEMP_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release
+    setenv CONTENTS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents
+    setenv COPYING_PRESERVES_HFS_DATA NO
+    setenv COPY_PHASE_STRIP YES
+    setenv COPY_RESOURCES_FROM_STATIC_FRAMEWORKS YES
+    setenv CP /bin/cp
+    setenv CURRENT_ARCH x86_64
+    setenv CURRENT_VARIANT normal
+    setenv DEAD_CODE_STRIPPING NO
+    setenv DEBUGGING_SYMBOLS YES
+    setenv DEBUG_INFORMATION_FORMAT dwarf-with-dsym
+    setenv DEFAULT_COMPILER com.apple.compilers.llvm.clang.1_0
+    setenv DEPLOYMENT_LOCATION NO
+    setenv DEPLOYMENT_POSTPROCESSING NO
+    setenv DERIVED_FILES_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/DerivedSources
+    setenv DERIVED_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/DerivedSources
+    setenv DERIVED_SOURCES_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/DerivedSources
+    setenv DEVELOPER_APPLICATIONS_DIR /Applications/Xcode.app/Contents/Developer/Applications
+    setenv DEVELOPER_BIN_DIR /Applications/Xcode.app/Contents/Developer/usr/bin
+    setenv DEVELOPER_DIR /Applications/Xcode.app/Contents/Developer
+    setenv DEVELOPER_FRAMEWORKS_DIR /Applications/Xcode.app/Contents/Developer/Library/Frameworks
+    setenv DEVELOPER_FRAMEWORKS_DIR_QUOTED "\"/Applications/Xcode.app/Contents/Developer/Library/Frameworks\""
+    setenv DEVELOPER_LIBRARY_DIR /Applications/Xcode.app/Contents/Developer/Library
+    setenv DEVELOPER_SDK_DIR /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs
+    setenv DEVELOPER_TOOLS_DIR /Applications/Xcode.app/Contents/Developer/Tools
+    setenv DEVELOPER_USR_DIR /Applications/Xcode.app/Contents/Developer/usr
+    setenv DEVELOPMENT_LANGUAGE English
+    setenv DOCUMENTATION_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Resources/English.lproj/Documentation
+    setenv DO_HEADER_SCANNING_IN_JAM NO
+    setenv DSTROOT /tmp/URLFinderAndVerifier.dst
+    setenv DT_TOOLCHAIN_DIR /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain
+    setenv DWARF_DSYM_FILE_NAME URLFinderAndVerifierTests.octest.dSYM
+    setenv DWARF_DSYM_FILE_SHOULD_ACCOMPANY_PRODUCT NO
+    setenv DWARF_DSYM_FOLDER_PATH /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release
+    setenv EMBEDDED_PROFILE_NAME embedded.provisionprofile
+    setenv ENABLE_HEADER_DEPENDENCIES YES
+    setenv EXCLUDED_INSTALLSRC_SUBDIRECTORY_PATTERNS ".DS_Store .svn .git .hg CVS"
+    setenv EXCLUDED_RECURSIVE_SEARCH_PATH_SUBDIRECTORIES "*.nib *.lproj *.framework *.gch (*) .DS_Store CVS .svn .git .hg *.xcodeproj *.xcode *.pbproj *.pbxproj"
+    setenv EXECUTABLES_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Executables
+    setenv EXECUTABLE_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/MacOS
+    setenv EXECUTABLE_NAME URLFinderAndVerifierTests
+    setenv EXECUTABLE_PATH URLFinderAndVerifierTests.octest/Contents/MacOS/URLFinderAndVerifierTests
+    setenv FILE_LIST /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Objects/LinkFileList
+    setenv FIXED_FILES_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/FixedFiles
+    setenv FRAMEWORKS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Frameworks
+    setenv FRAMEWORK_FLAG_PREFIX -framework
+    setenv FRAMEWORK_SEARCH_PATHS "\"/Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release\" \"/Applications/Xcode.app/Contents/Developer/Library/Frameworks\""
+    setenv FRAMEWORK_VERSION A
+    setenv FULL_PRODUCT_NAME URLFinderAndVerifierTests.octest
+    setenv GCC3_VERSION 3.3
+    setenv GCC_C_LANGUAGE_STANDARD gnu99
+    setenv GCC_ENABLE_OBJC_EXCEPTIONS YES
+    setenv GCC_INLINES_ARE_PRIVATE_EXTERN YES
+    setenv GCC_PFE_FILE_C_DIALECTS "c objective-c c++ objective-c++"
+    setenv GCC_PRECOMPILE_PREFIX_HEADER YES
+    setenv GCC_PREFIX_HEADER URLFinderAndVerifier/URLFinderAndVerifier-Prefix.pch
+    setenv GCC_TREAT_WARNINGS_AS_ERRORS NO
+    setenv GCC_VERSION com.apple.compilers.llvm.clang.1_0
+    setenv GCC_WARN_64_TO_32_BIT_CONVERSION YES
+    setenv GCC_WARN_ABOUT_RETURN_TYPE YES
+    setenv GCC_WARN_UNINITIALIZED_AUTOS YES
+    setenv GCC_WARN_UNUSED_VARIABLE YES
+    setenv GENERATE_MASTER_OBJECT_FILE NO
+    setenv GENERATE_PKGINFO_FILE NO
+    setenv GENERATE_PROFILING_CODE NO
+    setenv GID 20
+    setenv GROUP staff
+    setenv HEADERMAP_INCLUDES_FLAT_ENTRIES_FOR_TARGET_BEING_BUILT YES
+    setenv HEADERMAP_INCLUDES_FRAMEWORK_ENTRIES_FOR_ALL_PRODUCT_TYPES YES
+    setenv HEADERMAP_INCLUDES_NONPUBLIC_NONPRIVATE_HEADERS YES
+    setenv HEADERMAP_INCLUDES_PROJECT_HEADERS YES
+    setenv HEADER_SEARCH_PATHS "\"/Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release/include\"  /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include"
+    setenv ICONV /usr/bin/iconv
+    setenv INFOPLIST_EXPAND_BUILD_SETTINGS YES
+    setenv INFOPLIST_FILE URLFinderAndVerifierTests/URLFinderAndVerifierTests-Info.plist
+    setenv INFOPLIST_OUTPUT_FORMAT same-as-input
+    setenv INFOPLIST_PATH URLFinderAndVerifierTests.octest/Contents/Info.plist
+    setenv INFOPLIST_PREPROCESS NO
+    setenv INFOSTRINGS_PATH URLFinderAndVerifierTests.octest/Contents/Resources/English.lproj/InfoPlist.strings
+    setenv INSTALL_DIR /tmp/URLFinderAndVerifier.dst
+    setenv INSTALL_GROUP staff
+    setenv INSTALL_MODE_FLAG u+w,go-w,a+rX
+    setenv INSTALL_OWNER dhoerl
+    setenv INSTALL_ROOT /tmp/URLFinderAndVerifier.dst
+    setenv JAVAC_DEFAULT_FLAGS "-J-Xms64m -J-XX:NewSize=4M -J-Dfile.encoding=UTF8"
+    setenv JAVA_APP_STUB /System/Library/Frameworks/JavaVM.framework/Resources/MacOS/JavaApplicationStub
+    setenv JAVA_ARCHIVE_CLASSES YES
+    setenv JAVA_ARCHIVE_TYPE JAR
+    setenv JAVA_COMPILER /usr/bin/javac
+    setenv JAVA_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Resources/Java
+    setenv JAVA_FRAMEWORK_RESOURCES_DIRS Resources
+    setenv JAVA_JAR_FLAGS cv
+    setenv JAVA_SOURCE_SUBDIR .
+    setenv JAVA_USE_DEPENDENCIES YES
+    setenv JAVA_ZIP_FLAGS -urg
+    setenv JIKES_DEFAULT_FLAGS "+E +OLDCSO"
+    setenv KEEP_PRIVATE_EXTERNS NO
+    setenv LD_GENERATE_MAP_FILE NO
+    setenv LD_MAP_FILE_PATH /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/URLFinderAndVerifierTests-LinkMap-normal-x86_64.txt
+    setenv LD_NO_PIE NO
+    setenv LEGACY_DEVELOPER_DIR /Applications/Xcode.app/Contents/PlugIns/Xcode3Core.ideplugin/Contents/SharedSupport/Developer
+    setenv LEX lex
+    setenv LIBRARY_FLAG_NOSPACE YES
+    setenv LIBRARY_FLAG_PREFIX -l
+    setenv LIBRARY_SEARCH_PATHS "\"/Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release\" "
+    setenv LINKER_DISPLAYS_MANGLED_NAMES NO
+    setenv LINK_FILE_LIST_normal_x86_64 /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Objects-normal/x86_64/URLFinderAndVerifierTests.LinkFileList
+    setenv LINK_WITH_STANDARD_LIBRARIES YES
+    setenv LOCALIZED_RESOURCES_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Resources/English.lproj
+    setenv LOCAL_ADMIN_APPS_DIR /Applications/Utilities
+    setenv LOCAL_APPS_DIR /Applications
+    setenv LOCAL_DEVELOPER_DIR /Library/Developer
+    setenv LOCAL_LIBRARY_DIR /Library
+    setenv MACH_O_TYPE mh_bundle
+    setenv MACOSX_DEPLOYMENT_TARGET 10.8
+    setenv MAC_OS_X_PRODUCT_BUILD_VERSION 12E55
+    setenv MAC_OS_X_VERSION_ACTUAL 1084
+    setenv MAC_OS_X_VERSION_MAJOR 1080
+    setenv MAC_OS_X_VERSION_MINOR 0804
+    setenv NATIVE_ARCH i386
+    setenv NATIVE_ARCH_32_BIT i386
+    setenv NATIVE_ARCH_64_BIT x86_64
+    setenv NATIVE_ARCH_ACTUAL x86_64
+    setenv NO_COMMON YES
+    setenv OBJECT_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Objects
+    setenv OBJECT_FILE_DIR_normal /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Objects-normal
+    setenv OBJROOT /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates
+    setenv ONLY_ACTIVE_ARCH NO
+    setenv OPTIMIZATION_LEVEL 0
+    setenv OS MACOS
+    setenv OSAC /usr/bin/osacompile
+    setenv PACKAGE_TYPE com.apple.package-type.wrapper
+    setenv PASCAL_STRINGS YES
+    setenv PATH "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/local/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/usr/bin:/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/usr/local/bin:/Applications/Xcode.app/Contents/Developer/usr/bin:/Applications/Xcode.app/Contents/Developer/usr/local/bin:/Applications/Xcode.app/Contents/Developer/Tools:/usr/bin:/bin:/usr/sbin:/sbin"
+    setenv PATH_PREFIXES_EXCLUDED_FROM_HEADER_DEPENDENCIES "/usr/include /usr/local/include /System/Library/Frameworks /System/Library/PrivateFrameworks /Applications/Xcode.app/Contents/Developer/Headers /Applications/Xcode.app/Contents/Developer/SDKs /Applications/Xcode.app/Contents/Developer/Platforms"
+    setenv PBDEVELOPMENTPLIST_PATH URLFinderAndVerifierTests.octest/Contents/pbdevelopment.plist
+    setenv PFE_FILE_C_DIALECTS objective-c
+    setenv PKGINFO_FILE_PATH /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/PkgInfo
+    setenv PKGINFO_PATH URLFinderAndVerifierTests.octest/Contents/PkgInfo
+    setenv PLATFORM_DEVELOPER_APPLICATIONS_DIR /Applications/Xcode.app/Contents/Developer/Applications
+    setenv PLATFORM_DEVELOPER_BIN_DIR /Applications/Xcode.app/Contents/Developer/usr/bin
+    setenv PLATFORM_DEVELOPER_LIBRARY_DIR /Applications/Xcode.app/Contents/Developer/Library
+    setenv PLATFORM_DEVELOPER_SDK_DIR /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs
+    setenv PLATFORM_DEVELOPER_TOOLS_DIR /Applications/Xcode.app/Contents/Developer/Tools
+    setenv PLATFORM_DEVELOPER_USR_DIR /Applications/Xcode.app/Contents/Developer/usr
+    setenv PLATFORM_DIR /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform
+    setenv PLATFORM_NAME macosx
+    setenv PLATFORM_PREFERRED_ARCH x86_64
+    setenv PLATFORM_PRODUCT_BUILD_VERSION 4H512
+    setenv PLIST_FILE_OUTPUT_FORMAT same-as-input
+    setenv PLUGINS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/PlugIns
+    setenv PRECOMPS_INCLUDE_HEADERS_FROM_BUILT_PRODUCTS_DIR YES
+    setenv PRECOMP_DESTINATION_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/PrefixHeaders
+    setenv PRESERVE_DEAD_CODE_INITS_AND_TERMS NO
+    setenv PRIVATE_HEADERS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/PrivateHeaders
+    setenv PRODUCT_NAME URLFinderAndVerifierTests
+    setenv PRODUCT_SETTINGS_PATH /Volumes/Data/git/URLFinderAndVerifier/URLFinderAndVerifierTests/URLFinderAndVerifierTests-Info.plist
+    setenv PRODUCT_TYPE com.apple.product-type.bundle
+    setenv PROFILING_CODE NO
+    setenv PROJECT URLFinderAndVerifier
+    setenv PROJECT_DERIVED_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/DerivedSources
+    setenv PROJECT_DIR /Volumes/Data/git/URLFinderAndVerifier
+    setenv PROJECT_FILE_PATH /Volumes/Data/git/URLFinderAndVerifier/URLFinderAndVerifier.xcodeproj
+    setenv PROJECT_NAME URLFinderAndVerifier
+    setenv PROJECT_TEMP_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build
+    setenv PROJECT_TEMP_ROOT /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates
+    setenv PUBLIC_HEADERS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Headers
+    setenv RECURSIVE_SEARCH_PATHS_FOLLOW_SYMLINKS YES
+    setenv REMOVE_CVS_FROM_RESOURCES YES
+    setenv REMOVE_GIT_FROM_RESOURCES YES
+    setenv REMOVE_HG_FROM_RESOURCES YES
+    setenv REMOVE_SVN_FROM_RESOURCES YES
+    setenv REZ_COLLECTOR_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/ResourceManagerResources
+    setenv REZ_OBJECTS_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/ResourceManagerResources/Objects
+    setenv REZ_SEARCH_PATHS "\"/Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release\" "
+    setenv RUN_CLANG_STATIC_ANALYZER NO
+    setenv SCAN_ALL_SOURCE_FILES_FOR_INCLUDES NO
+    setenv SCRIPTS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Resources/Scripts
+    setenv SCRIPT_INPUT_FILE_COUNT 0
+    setenv SCRIPT_OUTPUT_FILE_COUNT 0
+    setenv SDKROOT /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.8.sdk
+    setenv SDK_DIR /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX10.8.sdk
+    setenv SDK_NAME macosx10.8
+    setenv SDK_PRODUCT_BUILD_VERSION 12D75
+    setenv SED /usr/bin/sed
+    setenv SEPARATE_STRIP NO
+    setenv SEPARATE_SYMBOL_EDIT NO
+    setenv SET_DIR_MODE_OWNER_GROUP YES
+    setenv SET_FILE_MODE_OWNER_GROUP NO
+    setenv SHARED_DERIVED_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release/DerivedSources
+    setenv SHARED_FRAMEWORKS_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/SharedFrameworks
+    setenv SHARED_PRECOMPS_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/PrecompiledHeaders
+    setenv SHARED_SUPPORT_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/SharedSupport
+    setenv SKIP_INSTALL YES
+    setenv SOURCE_ROOT /Volumes/Data/git/URLFinderAndVerifier
+    setenv SRCROOT /Volumes/Data/git/URLFinderAndVerifier
+    setenv STRINGS_FILE_OUTPUT_ENCODING UTF-16
+    setenv STRIP_INSTALLED_PRODUCT YES
+    setenv STRIP_STYLE non-global
+    setenv SUPPORTED_PLATFORMS macosx
+    setenv SYMROOT /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products
+    setenv SYSTEM_ADMIN_APPS_DIR /Applications/Utilities
+    setenv SYSTEM_APPS_DIR /Applications
+    setenv SYSTEM_CORE_SERVICES_DIR /System/Library/CoreServices
+    setenv SYSTEM_DEMOS_DIR /Applications/Extras
+    setenv SYSTEM_DEVELOPER_APPS_DIR /Applications/Xcode.app/Contents/Developer/Applications
+    setenv SYSTEM_DEVELOPER_BIN_DIR /Applications/Xcode.app/Contents/Developer/usr/bin
+    setenv SYSTEM_DEVELOPER_DEMOS_DIR "/Applications/Xcode.app/Contents/Developer/Applications/Utilities/Built Examples"
+    setenv SYSTEM_DEVELOPER_DIR /Applications/Xcode.app/Contents/Developer
+    setenv SYSTEM_DEVELOPER_DOC_DIR "/Applications/Xcode.app/Contents/Developer/ADC Reference Library"
+    setenv SYSTEM_DEVELOPER_GRAPHICS_TOOLS_DIR "/Applications/Xcode.app/Contents/Developer/Applications/Graphics Tools"
+    setenv SYSTEM_DEVELOPER_JAVA_TOOLS_DIR "/Applications/Xcode.app/Contents/Developer/Applications/Java Tools"
+    setenv SYSTEM_DEVELOPER_PERFORMANCE_TOOLS_DIR "/Applications/Xcode.app/Contents/Developer/Applications/Performance Tools"
+    setenv SYSTEM_DEVELOPER_RELEASENOTES_DIR "/Applications/Xcode.app/Contents/Developer/ADC Reference Library/releasenotes"
+    setenv SYSTEM_DEVELOPER_TOOLS /Applications/Xcode.app/Contents/Developer/Tools
+    setenv SYSTEM_DEVELOPER_TOOLS_DOC_DIR "/Applications/Xcode.app/Contents/Developer/ADC Reference Library/documentation/DeveloperTools"
+    setenv SYSTEM_DEVELOPER_TOOLS_RELEASENOTES_DIR "/Applications/Xcode.app/Contents/Developer/ADC Reference Library/releasenotes/DeveloperTools"
+    setenv SYSTEM_DEVELOPER_USR_DIR /Applications/Xcode.app/Contents/Developer/usr
+    setenv SYSTEM_DEVELOPER_UTILITIES_DIR /Applications/Xcode.app/Contents/Developer/Applications/Utilities
+    setenv SYSTEM_DOCUMENTATION_DIR /Library/Documentation
+    setenv SYSTEM_LIBRARY_DIR /System/Library
+    setenv TARGETNAME URLFinderAndVerifierTests
+    setenv TARGET_BUILD_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release
+    setenv TARGET_NAME URLFinderAndVerifierTests
+    setenv TARGET_TEMP_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build
+    setenv TEMP_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build
+    setenv TEMP_FILES_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build
+    setenv TEMP_FILE_DIR /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build
+    setenv TEMP_ROOT /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates
+    setenv TEST_AFTER_BUILD NO
+    setenv TEST_HOST /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Products/Release/URLFinderAndVerifier.app/Contents/MacOS/URLFinderAndVerifier
+    setenv TOOLCHAINS com.apple.dt.toolchain.XcodeDefault
+    setenv UID 502
+    setenv UNLOCALIZED_RESOURCES_FOLDER_PATH URLFinderAndVerifierTests.octest/Contents/Resources
+    setenv UNSTRIPPED_PRODUCT NO
+    setenv USER dhoerl
+    setenv USER_APPS_DIR /Volumes/Data/Users/dhoerl/Applications
+    setenv USER_LIBRARY_DIR /Volumes/Data/Users/dhoerl/Library
+    setenv USE_DYNAMIC_NO_PIC YES
+    setenv USE_HEADERMAP YES
+    setenv USE_HEADER_SYMLINKS NO
+    setenv VALIDATE_PRODUCT NO
+    setenv VALID_ARCHS "i386 x86_64"
+    setenv VERBOSE_PBXCP NO
+    setenv VERSIONPLIST_PATH URLFinderAndVerifierTests.octest/Contents/version.plist
+    setenv VERSION_INFO_BUILDER dhoerl
+    setenv VERSION_INFO_FILE URLFinderAndVerifierTests_vers.c
+    setenv VERSION_INFO_STRING "\"@(#)PROGRAM:URLFinderAndVerifierTests  PROJECT:URLFinderAndVerifier-\""
+    setenv WRAPPER_EXTENSION octest
+    setenv WRAPPER_NAME URLFinderAndVerifierTests.octest
+    setenv WRAPPER_SUFFIX .octest
+    setenv XCODE_APP_SUPPORT_DIR /Applications/Xcode.app/Contents/Developer/Library/Xcode
+    setenv XCODE_PRODUCT_BUILD_VERSION 4H512
+    setenv XCODE_VERSION_ACTUAL 0461
+    setenv XCODE_VERSION_MAJOR 0400
+    setenv XCODE_VERSION_MINOR 0460
+    setenv YACC yacc
+    /bin/sh -c /Volumes/Data/Users/dhoerl/Library/Developer/Xcode/DerivedData/URLFinderAndVerifier-ftszvgbgmbmtnletsuiitjchbltu/Build/Intermediates/URLFinderAndVerifier.build/Release/URLFinderAndVerifierTests.build/Script-DE4417ED174584D2007A0F7F.sh
+
+/Applications/Xcode.app/Contents/Developer/Tools/RunUnitTests:68: note: RunUnitTes

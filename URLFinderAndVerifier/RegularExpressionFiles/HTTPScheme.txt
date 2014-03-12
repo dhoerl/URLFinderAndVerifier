@@ -1,2 +1,2 @@
-(⌽http|https?)
+(⌽http|https)
 # DFH Addition: change ⌽ from "?:" to "" to get capture groups of the various components

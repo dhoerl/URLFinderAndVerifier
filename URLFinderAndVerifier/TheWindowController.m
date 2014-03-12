@@ -3,7 +3,7 @@
 //  EmailAddressFinder
 //
 //  Created by David Hoerl on 3/20/13.
-//  Copyright (c) 2013 dhoerl. All rights reserved.
+//  Copyright (c) 2013-2014 David Hoerl All rights reserved.
 //
 
 #import "TheWindowController.h"
@@ -16,7 +16,8 @@
 {
 	IBOutlet NSButton *scanButton;
 	IBOutlet NSButton *verifyButton;
-	IBOutlet NSButton *pasteButton;
+	IBOutlet NSButton *pasteTextButton;
+	IBOutlet NSButton *pasteStringButton;
 	IBOutlet NSButton *interactiveButton;
 
 	IBOutlet NSTextView *testString;
@@ -35,6 +36,9 @@
 	
 	NSString *oldInput;
 	NSString *interInput;
+	
+	NSString *host;
+ NSString *ipv6;
 }
 
 - (void)windowDidLoad
@@ -57,6 +61,14 @@
 		} );
 }
 
+- (IBAction)quitAction:(id)sender
+{
+	dispatch_async(dispatch_get_main_queue(), ^
+		{
+			[[NSApplication sharedApplication] terminate:self];
+		} );
+}
+
 - (IBAction)testAction:(id)sender
 {
 	//NSLog(@"TESTER");
@@ -64,7 +76,6 @@
 	NSString *str = [testString string];
 	if(![str length]) {
 		NSBeep();
-		return;
 	} else {
 		[resultsList setString:@""];
 
@@ -79,13 +90,7 @@
 		[resultsList setString:str];
 	}
 }
-- (IBAction)quitAction:(id)sender
-{
-	dispatch_async(dispatch_get_main_queue(), ^
-		{
-			[[NSApplication sharedApplication] terminate:self];
-		} );
-}
+
 - (IBAction)testSelection:(id)sender
 {
 	NSString *str = [testString string];
@@ -124,6 +129,7 @@
 		[resultsList setString:@"Regex failed!"];
 	}
 }
+
 - (IBAction)pasteRegex:(id)sender
 {
 	NSString *str = [self createRegEx];
@@ -140,7 +146,8 @@
 	BOOL isOff = [button state] == NSOffState;
 	scanButton.enabled = isOff;
 	verifyButton.enabled = isOff;
-	pasteButton.enabled = isOff;
+	pasteTextButton.enabled = isOff;
+	pasteStringButton.enabled = isOff;
 
 #if 0
 	scheme.enabled = isOff;
@@ -169,19 +176,30 @@
 	NSString *fileName;
 	NSString *part;
 
+	NSString *regName;
 	switch([scheme indexOfSelectedItem]) {
 	case 0:
 		fileName = @"AllSchemes";
+		regName = @"Reg-Name";
 		break;
 	case 1:
 		fileName = @"HTTPScheme";
+		regName = @"Domain";
 		break;
 	case 2:
 		fileName = @"HTTPS+FTPScheme";
+		regName = @"Domain";
 		break;
 	default:
 		return nil;
 	}
+	ipv6 = [self processFile:@"RFC-5321-IPv6"];
+	ipv6 = [ipv6 stringByReplacingOccurrencesOfString:@"HEX_NUM" withString:@"[1-9A-Fa-f](?:[0-9A-Fa-f]{0,3})"];
+
+	host = [self processFile:regName];
+	assert(host);
+	// NSLog(@"HOST: %@", host);
+	
 	part = [self processFile:fileName];
 	[regEx appendString:part];
 
@@ -226,7 +244,14 @@
 			first = [first stringByReplacingOccurrencesOfString:@" " withString:@""];
 			if([first length]) {
 				//first = [first stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-				first = [first stringByReplacingOccurrencesOfString:@"☯" withString:([detectUnicode state] == NSOnState) ? @"|[\\u0080-\\U0010ffff]" : @""];
+				if([ipv6 length]) {
+					first = [first stringByReplacingOccurrencesOfString:@"IPV6" withString:ipv6];
+				}
+				if([host length]) {
+					first = [first stringByReplacingOccurrencesOfString:@"◼︎" withString:host];
+				}
+				first = [first stringByReplacingOccurrencesOfString:@"▼" withString:([detectUnicode state] == NSOnState) ? @"\\u00a1-\\U0010ffff" : @""];
+				first = [first stringByReplacingOccurrencesOfString:@"☯" withString:([detectUnicode state] == NSOnState) ? @"|[\\u00a1-\\U0010ffff]" : @""];
 				first = [first stringByReplacingOccurrencesOfString:@"✪" withString:([entryMode state] == NSOnState) ? @"+" : @"*"];
 				first = [first stringByReplacingOccurrencesOfString:@"⌽" withString:([captureGroups state] == NSOnState) ? @"" : @"?:"];
 				[str appendString:first];

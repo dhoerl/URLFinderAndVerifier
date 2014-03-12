@@ -1,0 +1,2 @@
+# Used by AllAuthority. This is the official RFC-3986 specification for "authority"
+(?:[A-Za-z0-9\-._~!$&'()*+,;=@▼]|%[0-9A-Fa-f]{2}☯)+

@@ -1,6 +1,6 @@
 URLFinderAndVerifier
 ====================
-Copyright (c) 2013 David Hoerl, all rights reserved. (see URLSearcher files for usage license)
+Copyright (c) 2013-2014 David Hoerl, all rights reserved. (see URLSearcher files for usage license)
 
 When searching on the web, the curious developer finds a slew of regular expressions claiming to properly process URLs. However, it's virtually impossible to test their compliance as the specification is quite rich, and there is no official list of URLs to test against. That said, a site managed by Mathias Bynens (link below) contains a reasonably long list of URLs to use in a Unit Test.
 
